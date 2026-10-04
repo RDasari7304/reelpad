@@ -65,7 +65,25 @@ instagramRouter.get(
         logger.warn({ coinId, err: (e as Error).message }, "long-lived token exchange failed; connecting with the short-lived token");
         return { token: shortToken, expiresAt: new Date(Date.now() + 55 * 60_000) };
       });
-      const me = await step("Reading the Instagram profile", () => getMe(token, userId));
+      // Safe diagnostics (never the token itself): which kind of token Instagram issued and what was granted.
+      logger.info({ coinId, tokenKind: shortToken?.slice(0, 4), permissions, userId }, "instagram login token received");
+      let me: Awaited<ReturnType<typeof getMe>>;
+      try {
+        me = await getMe(token, userId);
+      } catch (e) {
+        const msg = (e as Error).message;
+        logger.warn({ coinId, err: msg, tokenKind: shortToken?.slice(0, 4) }, "instagram profile read failed");
+        // Instagram answers every call with "Unsupported request" when the account can't use the API:
+        // almost always a personal (not Professional) account, or an old app permission left over.
+        if (/unsupported (get )?request/i.test(msg)) {
+          return fail(
+            "Instagram accepted the login but won't let this account be used by apps. Make sure it's a Professional account " +
+              "(in Instagram: Settings, Account type and tools, Switch to professional account, then pick Creator or Business). " +
+              "If it already is, open Settings, Apps and websites, remove Reelpad, then log in here again.",
+          );
+        }
+        throw new Error(`Reading the Instagram profile: ${msg}`);
+      }
       if (me.accountType && !["BUSINESS", "MEDIA_CREATOR", "CREATOR"].includes(me.accountType.toUpperCase())) {
         return fail("This Instagram account must be a Professional (Creator or Business) account");
       }
