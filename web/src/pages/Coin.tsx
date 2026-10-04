@@ -318,8 +318,7 @@ export default function CoinPage() {
   const { wallet, signIn, signingIn } = useSession();
   const [coin, setCoin] = useState<Coin | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  // The chart is the default tab for launched coins; the page switches to Posts if there's no chart yet.
-  const [tab, setTab] = useState<Tab>("chart");
+  const [tab, setTab] = useState<Tab>("posts");
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -420,6 +419,7 @@ export default function CoinPage() {
                 </a>
               </>
             )}
+            {coin.status === "live" && <Link to={`/room?follow=${coin.id}`}>See {coin.name} in the Room</Link>}
             {coin.website && <a href={coin.website} target="_blank" rel="noreferrer">Website</a>}
             {coin.twitter && <a href={coin.twitter} target="_blank" rel="noreferrer">X</a>}
             {coin.telegram && <a href={coin.telegram} target="_blank" rel="noreferrer">Telegram</a>}
@@ -471,7 +471,7 @@ export default function CoinPage() {
       {owner && coin.status === "live" && !igActive && <InstagramConnect coin={coin} launched={launched} onChange={setCoin} />}
 
       <nav className="tabs" role="tablist">
-        {([...(hasChart ? ["chart"] : []), "posts", "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
+        {(["posts", ...(hasChart ? ["chart"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={shown === t} className={shown === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
             {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "treasury" ? "Treasury" : "Settings"}
           </button>

@@ -10,7 +10,8 @@ export type JobType =
   | "content.publish"
   | "treasury.run"
   | "instagram.refresh"
-  | "launch.confirm";
+  | "launch.confirm"
+  | "room.converse";
 
 export interface Job {
   id: string;

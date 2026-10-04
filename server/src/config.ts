@@ -72,6 +72,7 @@ const schema = z.object({
   COST_LLM_USD: num(0.02),
   DAILY_AI_BUDGET_USD: num(50),
 
+  ROOM_MAX_CONVERSATIONS: num(3), // conversations running at once in the Room (only while someone is watching)
   CONTENT_MIN_POSTS_PER_DAY: num(12), // every coin posts at least this often
   CONTENT_MAX_POSTS_PER_DAY: num(24), // most posts a creator can schedule per day (Instagram allows 100 per 24h)
   CONTENT_MAX_REELS_PER_WEEK: num(21), // most Reels per week; Reels cost the most to generate

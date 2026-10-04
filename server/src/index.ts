@@ -15,6 +15,7 @@ import { adminRouter } from "./http/admin.js";
 import { authRouter, readSession } from "./http/auth.js";
 import { coinsRouter, postsRouter } from "./http/coins.js";
 import { instagramRouter } from "./http/instagram.js";
+import { roomRouter } from "./http/room.js";
 import { errorHandler } from "./http/util.js";
 import { PERSONALITIES, VISUAL_STYLES } from "./domain/catalog.js";
 import { logger } from "./lib/logger.js";
@@ -88,6 +89,7 @@ app.use("/api/coins", coinsRouter);
 app.use("/api/posts", postsRouter);
 app.use("/api/instagram", instagramRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/room", roomRouter);
 app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 
 // Serve the built frontend (single-page app).

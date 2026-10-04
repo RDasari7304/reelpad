@@ -50,3 +50,6 @@ export const CONTENT_RULES = `Hard rules (never break these):
 - No real people's likenesses, celebrities, logos, trademarks or copyrighted characters in image or video prompts.
 - Nothing sexual, violent, hateful or harassing. Keep it fun, original and on-character.
 - Treasury facts you mention must come from the context given to you; never invent numbers.`;
+
+/** "chaos_gremlin" → "Chaos gremlin". */
+export const humanizeKey = (key: string) => key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());

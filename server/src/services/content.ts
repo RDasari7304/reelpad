@@ -13,6 +13,7 @@ import { getCoin, getInstagram, markInstagramExpired, type CoinRow } from "./coi
 import { containerStatus, InstagramError, publish } from "./instagram.js";
 import { rehostImageForInstagram, rehostVideo } from "./media.js";
 import { getKillSwitch } from "./settings.js";
+import { roomMemories } from "./room.js";
 import { reserveSpend } from "./spend.js";
 
 interface PostPlan {
@@ -148,6 +149,9 @@ async function recentContext(coin: CoinRow) {
     .filter((p) => p.plan?.memory)
     .slice(0, 8)
     .map((p) => `${timeAgo(p.created_at)}: ${p.plan!.memory}`);
+  // Who it met in the Room lately, so posts can mention those encounters.
+  const met = await roomMemories(coin.id, 3).catch(() => []);
+  memories.push(...met.map((m) => `${timeAgo(m.starts_at)}, in the Room with ${m.other}: ${m.memory}`));
   const latest = posts.rows.find((p) => p.plan?.mood || p.plan?.next_thread);
   const lastPostAt = posts.rows[0]?.created_at ?? null;
   return {

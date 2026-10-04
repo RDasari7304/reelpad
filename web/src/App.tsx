@@ -6,6 +6,7 @@ import { SessionProvider, useSession } from "./session";
 import Home from "./pages/Home";
 import Launch from "./pages/Launch";
 import Feed from "./pages/Feed";
+import Room from "./pages/Room";
 import CoinPage from "./pages/Coin";
 import Mine from "./pages/Mine";
 import Admin from "./pages/Admin";
@@ -29,6 +30,7 @@ function Header() {
           Influencers
         </NavLink>
         <NavLink to="/feed">Recent posts</NavLink>
+        <NavLink to="/room">The Room</NavLink>
         {wallet && <NavLink to="/mine">My coins</NavLink>}
         {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         <NavLink to="/launch" className="nav-launch">
@@ -78,6 +80,7 @@ export default function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/launch" element={<Launch />} />
                 <Route path="/feed" element={<Feed />} />
+                <Route path="/room" element={<Room />} />
                 <Route path="/coin/:key" element={<CoinPage />} />
                 <Route path="/mine" element={<Mine />} />
                 <Route path="/admin" element={<Admin />} />

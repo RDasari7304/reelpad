@@ -9,6 +9,7 @@ import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl } from "../src/domain/links.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
+import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
 import { chooseFormat, firstPostFormat, nextPostAt } from "../src/domain/schedule.ts";
 import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
@@ -335,5 +336,31 @@ describe("price chart data", () => {
   it("accepts only known timeframes", () => {
     assert.ok(isTimeframe("5m") && isTimeframe("1d"));
     assert.ok(!isTimeframe("2m") && !isTimeframe(undefined));
+  });
+});
+
+describe("the Room", () => {
+  it("times lines so they can be read", () => {
+    const { lines, talkSec } = timeLines([
+      { speaker: "a", text: "hey" },
+      { speaker: "b", text: "Oh, it's you again. The goldfish guy.", action: "*sighs*" },
+      { speaker: "b", text: "#tag   " },
+    ]);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0]!.at, 0);
+    assert.ok(lines[1]!.at >= lines[0]!.dur);
+    assert.equal(lines[1]!.action, "sighs");
+    assert.ok(talkSec >= lines[1]!.at + lines[1]!.dur);
+    assert.ok(lineSeconds("x") >= 2.4 && lineSeconds("x".repeat(500)) <= 10);
+    assert.ok(cleanLine("a ".repeat(200)).length <= 180);
+  });
+  it("pairs free characters and avoids people who just met", () => {
+    const now = Date.now();
+    const met = new Map([[pairKey("a", "b"), now - 60_000]]);
+    for (let i = 0; i < 20; i++) {
+      const p = pickPair(["a", "b", "c"], met, new Set(), now)!;
+      assert.notDeepEqual([...p].sort(), ["a", "b"]);
+    }
+    assert.equal(pickPair(["a", "b"], new Map(), new Set(["a"]), now), null);
   });
 });
