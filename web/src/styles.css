@@ -1932,3 +1932,133 @@ textarea.input {
   font: 0.85rem var(--mono);
   color: var(--error);
 }
+
+/* ── Price chart (drawn by Reelpad, no embeds) ── */
+.pc {
+  --pc-up: #1e8a5e;
+  --pc-down: #d1453b;
+}
+.pc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.pc-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.pc-price small {
+  width: 100%;
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.pc-price strong {
+  font: 700 var(--t-xl) var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.pc-change {
+  font-weight: 700;
+}
+.pc-change small {
+  width: auto;
+  font-weight: 400;
+}
+.pc-change.up { color: var(--pc-up); }
+.pc-change.down { color: var(--pc-down); }
+.pc-tfs {
+  display: flex;
+  gap: 6px;
+}
+.pc-frame {
+  position: relative;
+  min-height: 440px;
+  background: var(--print);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-print);
+  overflow: hidden;
+}
+.pc-empty {
+  display: grid;
+  place-items: center;
+  min-height: 440px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.pc-plot {
+  position: relative;
+  touch-action: pan-y;
+}
+.pc-plot svg {
+  display: block;
+  user-select: none;
+}
+.pc-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.pc-axis {
+  fill: var(--ink-soft);
+  font: 11px var(--mono);
+}
+.pc-c line { stroke-width: 1; }
+.pc-c.up line { stroke: var(--pc-up); }
+.pc-c.up rect { fill: var(--pc-up); }
+.pc-c.down line { stroke: var(--pc-down); }
+.pc-c.down rect { fill: var(--pc-down); }
+.pc-vol { opacity: 0.28; }
+.pc-vol.up { fill: var(--pc-up); }
+.pc-vol.down { fill: var(--pc-down); }
+.pc-last {
+  stroke: var(--ink-soft);
+  stroke-dasharray: 3 4;
+  opacity: 0.7;
+}
+.pc-tag.up { fill: var(--pc-up); }
+.pc-tag.down { fill: var(--pc-down); }
+.pc-tag-text {
+  fill: #fff;
+  font: 600 11px var(--mono);
+}
+.pc-cross line {
+  stroke: var(--ink);
+  stroke-dasharray: 2 3;
+  opacity: 0.5;
+}
+.pc-tip {
+  position: absolute;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  padding: 8px 10px;
+  background: rgb(28 26 36 / 0.92);
+  color: #fff;
+  border-radius: 8px;
+  font: 12px var(--mono);
+  pointer-events: none;
+}
+.pc-tip strong {
+  font-family: var(--body);
+  margin-bottom: 2px;
+}
+.pc-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 10px;
+  font-size: var(--t-sm);
+}
+.pc-links {
+  display: flex;
+  gap: 16px;
+}

@@ -11,6 +11,8 @@ import {
   contentSettingsSchema,
   instagramUsernameSchema,
 } from "../domain/schemas.js";
+import { isTimeframe } from "../domain/chart.js";
+import { getChart } from "../services/chart.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
 import { upsertAccessRequest } from "../services/instagramAccess.js";
 import { createDraft, prepareLaunch, submitLaunch } from "../services/launch.js";
@@ -82,6 +84,18 @@ coinsRouter.get(
         }),
       ),
     });
+  }),
+);
+
+/** Price candles for the coin's chart (fetched and cached by the server; no third-party embeds). */
+coinsRouter.get(
+  "/:key/chart",
+  asyncHandler(async (req, res) => {
+    const coin = await getCoinByIdOrMint(String(req.params.key));
+    if (!coin || coin.status !== "live" || !coin.mint) throw new HttpError(404, "Coin not found");
+    const tf = isTimeframe(req.query.tf) ? req.query.tf : "5m";
+    res.set("Cache-Control", "public, max-age=30");
+    res.json(await getChart(coin.id, coin.mint, tf));
   }),
 );
 

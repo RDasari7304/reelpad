@@ -35,7 +35,7 @@ app.use(
         imgSrc: ["'self'", "data:", "blob:", "https:"],
         mediaSrc: ["'self'", "https:"],
         connectSrc: ["'self'", "https:", "wss:"],
-        frameSrc: ["'self'", "https://dexscreener.com", "https://birdeye.so"],
+        frameSrc: ["'self'"],
         formAction: ["'self'", "https://www.instagram.com"],
         // Only force HTTPS when the site is served over HTTPS, so `npm start` still works on http://localhost.
         upgradeInsecureRequests: config.PUBLIC_URL.startsWith("https://") ? [] : null,

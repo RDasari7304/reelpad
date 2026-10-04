@@ -8,6 +8,7 @@ import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/pers
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl } from "../src/domain/links.ts";
+import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
 import { chooseFormat, firstPostFormat, nextPostAt } from "../src/domain/schedule.ts";
 import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
@@ -310,5 +311,29 @@ describe("talking reels", () => {
 describe("locked website", () => {
   it("points to the coin's Reelpad page", () => {
     assert.equal(coinPageUrl("https://reelpad.fun/", "Mint111"), "https://reelpad.fun/coin/Mint111");
+  });
+});
+
+describe("price chart data", () => {
+  it("parses GeckoTerminal candles oldest-first and drops bad rows", () => {
+    const c = parseOhlcv([
+      [200, 2, 3, 1, 2.5, 10],
+      [100, 1, 2, 0.5, 2, 5],
+      ["x", 1, 1, 1, 1, 1],
+      [300, 1, 1, 1, 0, 1],
+    ]);
+    assert.deepEqual(c.map((x) => x.t), [100, 200]);
+    assert.equal(c[1]!.c, 2.5);
+    assert.deepEqual(parseOhlcv(null), []);
+  });
+  it("buckets snapshots into candles", () => {
+    const c = bucketCandles([{ t: 10, p: 1 }, { t: 20, p: 3 }, { t: 299, p: 2 }, { t: 310, p: 5 }], 300);
+    assert.equal(c.length, 2);
+    assert.deepEqual(c[0], { t: 0, o: 1, h: 3, l: 1, c: 2, v: 0 });
+    assert.equal(c[1]!.o, 5);
+  });
+  it("accepts only known timeframes", () => {
+    assert.ok(isTimeframe("5m") && isTimeframe("1d"));
+    assert.ok(!isTimeframe("2m") && !isTimeframe(undefined));
   });
 });

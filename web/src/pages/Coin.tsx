@@ -4,7 +4,9 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, type Coin, type ContentSettings, type Post, type TreasuryView } from "../api";
 import { Address, NextPostCountdown, Notice } from "../components";
 import { ContentEditor, PersonaSummary } from "../editors";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { InstagramConnect } from "../InstagramConnect";
+import { PriceChart } from "../PriceChart";
 import { useSession } from "../session";
 
 type Tab = "chart" | "posts" | "treasury" | "settings";
@@ -280,46 +282,6 @@ function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void
   );
 }
 
-type ChartSource = "dexscreener" | "birdeye";
-
-/** Live price chart embedded from DexScreener (default) or Birdeye. */
-function ChartTab({ mint, symbol }: { mint: string; symbol: string }) {
-  const [source, setSource] = useState<ChartSource>("dexscreener");
-  const dark = typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
-  const theme = dark ? "dark" : "light";
-  const src =
-    source === "dexscreener"
-      ? `https://dexscreener.com/solana/${mint}?embed=1&loadChartSettings=0&trades=1&tabs=0&info=0&chartLeftToolbar=0&chartTheme=${theme}&theme=${theme}&chartStyle=1&chartType=usd&interval=5`
-      : `https://birdeye.so/tv-widget/${mint}?chain=solana&viewMode=pair&chartInterval=5&chartType=CANDLE&chartTimezone=Etc%2FUTC&chartLeftToolbar=hide&theme=${theme}`;
-  return (
-    <section className="chart-tab">
-      <div className="chart-bar">
-        <div className="chart-sources" role="group" aria-label="Chart source">
-          {(["dexscreener", "birdeye"] as ChartSource[]).map((s) => (
-            <button key={s} type="button" className={source === s ? "chip on" : "chip"} aria-pressed={source === s} onClick={() => setSource(s)}>
-              {s === "dexscreener" ? "DexScreener" : "Birdeye"}
-            </button>
-          ))}
-        </div>
-        <div className="chart-links">
-          <a href={`https://pump.fun/coin/${mint}`} target="_blank" rel="noreferrer">
-            Trade ${symbol} on pump.fun
-          </a>
-          <a href={`https://dexscreener.com/solana/${mint}`} target="_blank" rel="noreferrer">
-            Open full chart
-          </a>
-        </div>
-      </div>
-      <div className="chart-frame">
-        <iframe key={src} src={src} title={`$${symbol} price chart`} loading="lazy" allow="clipboard-write" referrerPolicy="no-referrer-when-downgrade" />
-      </div>
-      <p className="sub-hint">
-        Brand-new coins can take a minute or two to appear on chart sites. If it's blank, switch source or check back shortly.
-      </p>
-    </section>
-  );
-}
-
 export default function CoinPage() {
   const { key } = useParams();
   const [params, setParams] = useSearchParams();
@@ -492,7 +454,12 @@ export default function CoinPage() {
         )}
       </nav>
 
-      {shown === "chart" && hasChart && <ChartTab mint={coin.mint!} symbol={coin.symbol} />}
+      {shown === "chart" && hasChart && (
+        // Its own error boundary: if the chart ever fails, only the chart shows a message; the page keeps working.
+        <ErrorBoundary fallback={<p className="empty-line">The chart couldn't be shown right now. Posts and Treasury still work.</p>}>
+          <PriceChart coinKey={coin.mint!} symbol={coin.symbol} mint={coin.mint!} />
+        </ErrorBoundary>
+      )}
       {shown === "posts" &&
         (posts.length === 0 ? (
           <p className="empty-line">
