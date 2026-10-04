@@ -118,7 +118,7 @@ coinsRouter.get(
     if (!coin) throw new HttpError(404, "Coin not found");
     const isOwner = coin.creator_wallet === req.wallet;
     const rows = await query(
-      `SELECT id, format, status, trigger, concept, caption, media, permalink, error, created_at, published_at
+      `SELECT id, format, status, trigger, concept, caption, media, permalink, error, progress, stage, created_at, published_at
        FROM posts WHERE coin_id = $1 ${isOwner ? "" : "AND status = 'published'"}
        ORDER BY created_at DESC LIMIT 60`,
       [coin.id],
@@ -337,7 +337,7 @@ postsRouter.post(
   asyncHandler(async (req, res) => {
     const post = await ownedPost(String(req.params.id), req.wallet);
     if (post.status !== "awaiting_approval") throw new HttpError(400, "Post is not awaiting approval");
-    await query(`UPDATE posts SET status = 'ready' WHERE id = $1`, [post.id]);
+    await query(`UPDATE posts SET status = 'ready', progress = 90, stage = 'Queued to post' WHERE id = $1`, [post.id]);
     await enqueue("content.publish", { postId: post.id }, { dedupeKey: `pub:${post.id}`, maxAttempts: 4 });
     res.json({ ok: true });
   }),
@@ -360,12 +360,25 @@ postsRouter.post(
   asyncHandler(async (req, res) => {
     const post = await ownedPost(String(req.params.id), req.wallet);
     if (post.status !== "failed") throw new HttpError(400, "Only failed posts can be retried");
-    const hasMedia = await one<{ ok: boolean }>(`SELECT jsonb_array_length(media) > 0 AS ok FROM posts WHERE id = $1`, [post.id]);
-    if (hasMedia?.ok) {
-      await query(`UPDATE posts SET status = 'ready', error = NULL WHERE id = $1`, [post.id]);
+    const state = await one<{ has_media: boolean; has_plan: boolean }>(
+      `SELECT jsonb_array_length(media) > 0 AS has_media, plan IS NOT NULL AS has_plan FROM posts WHERE id = $1`,
+      [post.id],
+    );
+    if (state?.has_media) {
+      await query(`UPDATE posts SET status = 'ready', error = NULL, progress = 90, stage = 'Queued to post' WHERE id = $1`, [post.id]);
       await enqueue("content.publish", { postId: post.id }, { dedupeKey: `pub:${post.id}`, maxAttempts: 4 });
+    } else if (!state?.has_plan) {
+      // Failed while planning: plan it again, reusing this same card.
+      await query(
+        `UPDATE posts SET status = 'planned', error = NULL, progress = 5, stage = 'Coming up with the idea', created_at = now() WHERE id = $1`,
+        [post.id],
+      );
+      await enqueue("content.plan", { coinId: post.coin_id, trigger: "manual" }, { dedupeKey: `plan:${post.coin_id}`, maxAttempts: 3 });
     } else {
-      await query(`UPDATE posts SET status = 'generating', error = NULL WHERE id = $1`, [post.id]);
+      await query(
+        `UPDATE posts SET status = 'generating', error = NULL, progress = 20, stage = 'Starting the visuals again' WHERE id = $1`,
+        [post.id],
+      );
       await enqueue("content.generate", { postId: post.id }, { dedupeKey: `gen:${post.id}`, maxAttempts: 3 });
     }
     res.json({ ok: true });

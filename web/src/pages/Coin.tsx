@@ -20,6 +20,47 @@ const STATUS_LABEL: Record<string, string> = {
   planned: "Planned",
 };
 
+/** Statuses where the post is still being made or posted; shown as a loading card. */
+const IN_PROGRESS = new Set(["planned", "generating", "ready", "publishing"]);
+
+const FORMAT_LABEL: Record<Post["format"], string> = { image: "Image post", carousel: "Carousel", reel: "Reel" };
+
+function sinceLabel(iso: string) {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  return min < 1 ? "started just now" : `started ${min} min ago`;
+}
+
+/** A post-shaped card with a live progress bar while the post is being made. Turns into the finished post at 100%. */
+function MakingTile({ post }: { post: Post }) {
+  const pct = Math.max(2, Math.min(99, post.progress || 0));
+  const cover = post.media.find((m) => m.role === "cover") ?? post.media.find((m) => m.type === "image");
+  return (
+    <article className="post post-making" aria-live="polite">
+      <div className="post-media making-media" style={cover ? { backgroundImage: `url(${cover.url})` } : undefined}>
+        <div className="making-overlay">
+          <span className="making-pct">{pct}%</span>
+          <span className="making-format">{FORMAT_LABEL[post.format]}</span>
+        </div>
+      </div>
+      <div className="post-body">
+        <div
+          className="making-bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={pct}
+          aria-label={`${FORMAT_LABEL[post.format]} ${pct}% done`}
+        >
+          <span style={{ width: `${pct}%` }} />
+        </div>
+        <p className="making-stage">{post.stage ?? "Getting started"}</p>
+        {post.concept && <p className="post-caption making-concept">{post.concept}</p>}
+        <small className="muted">{sinceLabel(post.created_at)}</small>
+      </div>
+    </article>
+  );
+}
+
 function PostTile({ post, owner, onChange }: { post: Post; owner: boolean; onChange: () => void }) {
   const [editing, setEditing] = useState(false);
   const [caption, setCaption] = useState(post.caption ?? "");
@@ -273,15 +314,23 @@ export default function CoinPage() {
     return () => clearInterval(id);
   }, [coin?.isOwner, coin?.instagramAccess?.status, load]);
 
-  // Refresh while posts are being made.
+  // Refresh every few seconds while a post is being made (or expected to start), so the progress card moves.
+  const [expectUntil, setExpectUntil] = useState(0);
+  const making = posts.some((p) => IN_PROGRESS.has(p.status));
   useEffect(() => {
-    if (!posts.some((p) => ["generating", "publishing", "ready"].includes(p.status))) return;
-    const id = setInterval(load, 10_000);
+    if (!making && Date.now() > expectUntil) return;
+    const id = setInterval(() => {
+      if (!making && Date.now() > expectUntil) clearInterval(id);
+      load();
+    }, 4000);
     return () => clearInterval(id);
-  }, [posts, load]);
+  }, [making, expectUntil, load]);
 
   useEffect(() => {
-    if (params.get("ig") === "connected") setFlash("Instagram connected. The first post is on its way.");
+    if (params.get("ig") === "connected") {
+      setFlash("Instagram connected. Your first post is being made now. Watch its progress below.");
+      setExpectUntil(Date.now() + 120_000);
+    }
     if (params.get("ig_error")) setError(params.get("ig_error"));
     if (params.has("ig") || params.has("ig_error")) {
       params.delete("ig");
@@ -301,8 +350,10 @@ export default function CoinPage() {
   const generate = async () => {
     try {
       await api(`/coins/${coin.id}/posts/generate`, { method: "POST", json: {} });
-      setFlash("A new post is being made. It shows up here in a minute or two.");
-      setTimeout(load, 3000);
+      setFlash("A new post is being made. Watch its progress in the Posts tab.");
+      setTab("posts");
+      setExpectUntil(Date.now() + 90_000);
+      setTimeout(load, 2500);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -393,9 +444,13 @@ export default function CoinPage() {
           </p>
         ) : (
           <div className="posts">
-            {posts.map((p) => (
-              <PostTile key={p.id} post={p} owner={owner} onChange={load} />
-            ))}
+            {posts.map((p) =>
+              owner && IN_PROGRESS.has(p.status) ? (
+                <MakingTile key={p.id} post={p} />
+              ) : (
+                <PostTile key={p.id} post={p} owner={owner} onChange={load} />
+              ),
+            )}
           </div>
         ))}
       {tab === "treasury" && coin.status === "live" && <TreasuryTab coin={coin} />}

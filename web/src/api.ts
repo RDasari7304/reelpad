@@ -97,6 +97,8 @@ export interface Post {
   media: Array<{ type: "image" | "video"; url: string; role?: string }>;
   permalink: string | null;
   error: string | null;
+  progress: number;
+  stage: string | null;
   created_at: string;
   published_at: string | null;
 }

@@ -1011,6 +1011,75 @@ textarea.input {
   color: var(--violet-deep);
   margin-left: 6px;
 }
+/* ---------- post being made (live progress card) ---------- */
+.post-making {
+  box-shadow: 0 0 0 2px var(--violet), var(--shadow-print);
+}
+/* No image yet: a soft moving sheen. Once an image exists it shows dimmed behind the percentage. */
+.making-media:not([style]) {
+  background: linear-gradient(110deg, var(--paper-deep) 30%, var(--violet-wash) 50%, var(--paper-deep) 70%) 0 0 / 250% 100%;
+  animation: making-sheen 1.8s ease-in-out infinite;
+}
+.making-media[style] {
+  background-size: cover;
+  background-position: center;
+}
+@keyframes making-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+.making-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgb(239 235 251 / 0.55);
+  backdrop-filter: blur(2px);
+}
+.making-pct {
+  font: 800 3rem / 1 var(--display);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.making-format {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--violet-deep);
+}
+.making-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--paper-deep);
+  overflow: hidden;
+}
+.making-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--violet);
+  transition: width 0.8s ease;
+}
+.making-stage {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--t-sm);
+}
+.making-concept {
+  color: var(--ink-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .making-media {
+    animation: none;
+  }
+}
+
 /* ---------- buyback and burn ---------- */
 .burn-cycle {
   list-style: none;

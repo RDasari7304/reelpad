@@ -16,11 +16,25 @@ export function captionViolations(text: string): string[] {
   return BANNED.filter(([re]) => re.test(text)).map(([, label]) => label);
 }
 
+/** Matches one emoji, including skin tones, flags and joined sequences (e.g. family or profession emoji). */
+const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*|\p{Regional_Indicator}{2}/gu;
+
+/** Keeps at most `max` emoji in the text and tidies the spacing left behind. */
+export function limitEmojis(text: string, max = 1): string {
+  let seen = 0;
+  return text
+    .replace(EMOJI, (m) => (++seen <= max ? m : ""))
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +([.,!?])/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
 const IG_CAPTION_MAX = 2200;
 const IG_HASHTAG_MAX = 30;
 
-export function finalizeCaption(body: string, hashtags: string[], footer: string): string {
-  const cleanBody = body.replace(/\s+$/g, "").replace(/\n{3,}/g, "\n\n").trim();
+export function finalizeCaption(body: string, hashtags: string[], footer: string, maxEmojis = 1): string {
+  const cleanBody = limitEmojis(body, maxEmojis).replace(/\s+$/g, "").replace(/\n{3,}/g, "\n\n").trim();
   const existing = new Set((cleanBody.match(/#[\p{L}\p{N}_]+/gu) ?? []).map((h) => h.toLowerCase()));
   const extra: string[] = [];
   for (const raw of hashtags) {

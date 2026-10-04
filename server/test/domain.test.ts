@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
-import { captionViolations, finalizeCaption } from "../src/domain/caption.ts";
+import { captionViolations, finalizeCaption, limitEmojis } from "../src/domain/caption.ts";
+import { CAMERA_SHOTS, CAPTION_STYLES, captionOpener, LIGHTING, pickVariety, POST_ANGLES } from "../src/domain/variety.ts";
 import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
@@ -208,5 +209,48 @@ describe("first post", () => {
     const from = new Date("2026-01-01T00:00:00Z");
     assert.equal(nextPostAt(from, 12, () => 0.5).getTime() - from.getTime(), 2 * 3600_000);
     assert.equal(nextPostAt(from, 100, () => 0.5).getTime() - from.getTime(), 3600_000);
+  });
+});
+
+describe("post variety", () => {
+  it("avoids what recent posts used", () => {
+    const recent = [
+      { angle: POST_ANGLES[0], shot: CAMERA_SHOTS[0], lighting: LIGHTING[0], captionStyle: CAPTION_STYLES[0] },
+      { angle: POST_ANGLES[1], shot: CAMERA_SHOTS[1], lighting: LIGHTING[1], captionStyle: CAPTION_STYLES[1] },
+    ];
+    for (let i = 0; i < 200; i++) {
+      const v = pickVariety(recent);
+      assert.ok(v.angle !== POST_ANGLES[0] && v.angle !== POST_ANGLES[1]);
+      assert.ok(v.shot !== CAMERA_SHOTS[0] && v.shot !== CAMERA_SHOTS[1]);
+      assert.ok(v.lighting !== LIGHTING[0] && v.lighting !== LIGHTING[1]);
+      assert.ok(v.captionStyle !== CAPTION_STYLES[0] && v.captionStyle !== CAPTION_STYLES[1]);
+    }
+  });
+  it("still picks something when everything was used recently", () => {
+    const recent = CAMERA_SHOTS.map((shot) => ({ shot }));
+    assert.ok(CAMERA_SHOTS.includes(pickVariety(recent).shot as (typeof CAMERA_SHOTS)[number]));
+  });
+  it("works for a coin's very first post", () => {
+    const v = pickVariety([]);
+    assert.ok(v.angle && v.shot && v.lighting && v.captionStyle);
+  });
+  it("takes the first words of a caption as its opener", () => {
+    assert.equal(captionOpener("Friendship log, attempt #48! Today I mailed"), "Friendship log, attempt #48! Today");
+    assert.equal(captionOpener(null), "");
+  });
+});
+
+describe("emoji limit", () => {
+  it("keeps only the first emoji", () => {
+    assert.equal(limitEmojis("3... 2... 1... liftoff 🚀 🐶 woof 🌕"), "3... 2... 1... liftoff 🚀 woof");
+  });
+  it("counts joined and skin-tone emoji as one", () => {
+    assert.equal(limitEmojis("hi 👩‍🚀 and 👍🏽 bye"), "hi 👩‍🚀 and bye");
+  });
+  it("can remove all emoji and tidies spacing", () => {
+    assert.equal(limitEmojis("Ready 🚀 !", 0), "Ready!");
+  });
+  it("is applied when a caption is finalised", () => {
+    assert.equal(finalizeCaption("gm 🚀🐶🌕", [], "AI persona."), "gm 🚀\n\nAI persona.");
   });
 });

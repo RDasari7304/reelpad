@@ -6,14 +6,25 @@ import { config } from "../../config.js";
  */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function run<T>(model: string, input: Record<string, unknown>, timeoutMs: number): Promise<T> {
+async function run<T>(
+  model: string,
+  input: Record<string, unknown>,
+  timeoutMs: number,
+  onTick?: (elapsedMs: number) => Promise<unknown> | void,
+): Promise<T> {
   const headers = { Authorization: `Key ${config.FAL_KEY}`, "Content-Type": "application/json" };
   const submit = await fetch(`https://queue.fal.run/${model}`, { method: "POST", headers, body: JSON.stringify(input) });
   if (!submit.ok) throw new Error(`fal submit failed (${submit.status}): ${(await submit.text()).slice(0, 300)}`);
   const { status_url, response_url } = (await submit.json()) as { status_url: string; response_url: string };
 
-  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let lastTick = 0;
   while (Date.now() < deadline) {
+    if (onTick && Date.now() - lastTick > 10_000) {
+      lastTick = Date.now();
+      await Promise.resolve(onTick(lastTick - started)).catch(() => {});
+    }
     const s = await fetch(status_url, { headers });
     if (s.ok) {
       const status = (await s.json()) as { status: string; error?: string };
@@ -47,8 +58,14 @@ export async function generateImage(prompt: string, referenceImageUrl: string, a
   return url;
 }
 
-/** Animates a keyframe image into a short vertical video for a Reel. */
-export async function generateVideo(prompt: string, keyframeUrl: string) {
+/** Typical time to render a 5-second clip; drives the progress estimate (never shown as done before it is). */
+const EXPECTED_VIDEO_MS = 4 * 60_000;
+
+/**
+ * Animates a keyframe image into a short vertical video for a Reel.
+ * `onProgress` receives an estimated fraction (0–0.95) every ~10 seconds while it renders.
+ */
+export async function generateVideo(prompt: string, keyframeUrl: string, onProgress?: (fraction: number) => Promise<unknown>) {
   const out = await run<{ video?: { url: string } }>(
     config.FAL_VIDEO_MODEL,
     {
@@ -58,6 +75,8 @@ export async function generateVideo(prompt: string, keyframeUrl: string) {
       negative_prompt: "blur, distortion, low quality, text, watermark",
     },
     12 * 60_000,
+    // Eases toward 95% so a slow render keeps moving without ever claiming to be finished.
+    onProgress ? (elapsed) => onProgress(Math.min(0.95, 1 - Math.exp(-elapsed / EXPECTED_VIDEO_MS * 1.6))) : undefined,
   );
   const url = out.video?.url;
   if (!url) throw new Error("Video model returned no video");

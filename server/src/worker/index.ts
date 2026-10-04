@@ -3,7 +3,15 @@ import { claim, complete, fail, PermanentError, pruneOldJobs, type Job } from ".
 import { migrate } from "../db/migrate.js";
 import { pool } from "../db/pool.js";
 import { logger } from "../lib/logger.js";
-import { generatePost, markPostFailed, planPost, publishPost, scheduleDuePosts } from "../services/content.js";
+import {
+  generatePost,
+  markPlanningFailed,
+  markPostFailed,
+  noteRetry,
+  planPost,
+  publishPost,
+  scheduleDuePosts,
+} from "../services/content.js";
 import { refreshExpiringTokens } from "../services/instagramRefresh.js";
 import { runTreasury, scheduleTreasuryRuns } from "../services/treasury.js";
 
@@ -39,8 +47,13 @@ async function runJob(job: Job) {
     const permanent = e instanceof PermanentError;
     const final = await fail(job, e, !permanent);
     log.warn({ err: (e as Error).message, final }, "job failed");
+    const message = (e as Error).message;
     if (final && (job.type === "content.generate" || job.type === "content.publish")) {
-      await markPostFailed(job.payload.postId, (e as Error).message).catch(() => {});
+      await markPostFailed(job.payload.postId, message).catch(() => {});
+    } else if (final && job.type === "content.plan") {
+      await markPlanningFailed(job.payload.coinId, message).catch(() => {});
+    } else if (!final && job.type.startsWith("content.")) {
+      await noteRetry(job.payload, message).catch(() => {});
     }
   } finally {
     running--;
