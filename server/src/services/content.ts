@@ -3,7 +3,7 @@ import { enqueue, PermanentError } from "../db/jobs.js";
 import { one, query } from "../db/pool.js";
 import { captionViolations, finalizeCaption } from "../domain/caption.js";
 import { CONTENT_RULES, personaBrief, personalityText, visualStyleText } from "../domain/persona.js";
-import { cleanSpokenLine, maxSpokenWords, reelVideoPrompt, speakingVoice } from "../domain/reel.js";
+import { cleanSpokenLine, FILM_DIRECTION, maxSpokenWords, normalizeShots, reelStyle, reelVideoPrompt, shotRoles, speakingVoice, type ReelLook, type ReelShot } from "../domain/reel.js";
 import { postsPerDayFor, reelsAllowed } from "../domain/activity.js";
 import { supportsMultiReference } from "../domain/images.js";
 import { isStandalone, storyBrief, type Arc } from "../domain/story.js";
@@ -11,8 +11,9 @@ import { chooseFormat, firstPostFormat, nextPostAt, type Format } from "../domai
 import { captionOpener, pickVariety, type Variety } from "../domain/variety.js";
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
-import { generateImage, generateVideo, reelSeconds, reelsHaveAudio } from "./ai/fal.js";
-import { reviewImage } from "./ai/review.js";
+import { generateImage, generateVideo, reelSeconds, reelShots, reelsHaveAudio } from "./ai/fal.js";
+import { reviewImage, reviewShot } from "./ai/review.js";
+import { editReel, frameStrip, mergeOnFal } from "./video.js";
 import { getCoin, getInstagram, markInstagramExpired, type CoinRow } from "./coins.js";
 import { containerStatus, InstagramError, publish } from "./instagram.js";
 import { rehostImageForInstagram, rehostVideo } from "./media.js";
@@ -20,10 +21,11 @@ import { getKillSwitch } from "./settings.js";
 import { commentMemories } from "./comments.js";
 import { markMilestonePosted, takePendingMilestone } from "./milestones.js";
 import { fanChoice } from "./polls.js";
+import { shoutoutMemories } from "./shoutouts.js";
 import { collabBrief, markCollab, pickCollabPartner, type CollabPartner } from "./collabs.js";
 import { activeArc, ensureArc, recordStoryPost } from "./story.js";
 import { roomMemories } from "./room.js";
-import { reserveSpend } from "./spend.js";
+import { BudgetError, releaseSpend, reserveSpend } from "./spend.js";
 
 interface PostPlan {
   concept: string;
@@ -35,6 +37,8 @@ interface PostPlan {
   spoken_line?: string;
   /** Reels: the sound effects and ambience heard in the clip. */
   sound?: string;
+  /** Reels: the shots, each its own clip, edited together in order. */
+  shots?: Array<{ image_prompt: string; camera: string; motion: string; spoken_line: string; sound: string; talking_to?: string }>;
   setting: string;
   /** The character's own memory of this post: what happened and how it felt. Fed into later posts. */
   memory: string;
@@ -78,6 +82,28 @@ const PLAN_SCHEMA = {
       description:
         "For reels: the sound effects and ambience heard in the clip (e.g. 'rain on a tin roof, distant traffic'). No music with lyrics. For other formats, an empty string.",
     },
+    shots: {
+      type: "array",
+      description:
+        "For reels: the shots, in order (see the format instructions for how many). For other formats, an empty array.",
+      items: {
+        type: "object",
+        properties: {
+          image_prompt: {
+            type: "string",
+            description:
+              "The opening frame of this shot, vertical 9:16: the location, who else is in the frame and what they're doing, your pose and expression, framing and lighting. Face clearly visible and well lit (mouth visible if you talk in this shot). Don't describe your own appearance.",
+          },
+          camera: { type: "string", description: "Shot size and camera movement, e.g. 'close-up, slow push-in' or 'wide, handheld, slight orbit'." },
+          motion: { type: "string", description: "What you physically do during the shot: specific actions, gestures, expressions, timing." },
+          spoken_line: { type: "string", description: "What you say out loud in this shot, or an empty string if you don't talk in it." },
+          sound: { type: "string", description: "Ambience and sound effects in this shot. No music with lyrics." },
+          talking_to: { type: "string", description: "Who you talk to in this shot: 'camera', or a person in the scene (e.g. 'the chauffeur'). 'camera' if you don't talk." },
+        },
+        required: ["image_prompt", "camera", "motion", "spoken_line", "sound", "talking_to"],
+        additionalProperties: false,
+      },
+    },
     setting: {
       type: "string",
       description: "Where this post takes place, in 2 to 6 words (e.g. 'rooftop garden at night'). Must differ from recent settings.",
@@ -100,11 +126,11 @@ const PLAN_SCHEMA = {
       description: "Something you're looking forward to, planning, or left unresolved, which a future post could pick up. One sentence.",
     },
   },
-  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt", "spoken_line", "sound", "setting", "memory", "mood", "next_thread", "episode_recap", "episode_complete"],
+  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt", "spoken_line", "sound", "shots", "setting", "memory", "mood", "next_thread", "episode_recap", "episode_complete"],
   additionalProperties: false,
 };
 
-function formatInstructions(format: Format) {
+function formatInstructions(format: Format, look: ReelLook = "film") {
   switch (format) {
     case "image":
       return "Format: single image post. Provide exactly 1 image prompt.";
@@ -112,10 +138,26 @@ function formatInstructions(format: Format) {
       return "Format: carousel. Provide 3 to 5 image prompts that tell a short visual story in order.";
     case "reel": {
       const secs = reelSeconds();
-      const base = `Format: ${secs}-second vertical Reel. Provide exactly 1 image prompt for the opening keyframe (vertical 9:16 composition, the character facing the camera) and a video_prompt describing the motion.`;
-      return reelsHaveAudio()
-        ? `${base} The Reel has sound and you talk in it: write a spoken_line you say straight to the camera (at most ${maxSpokenWords(secs)} words, spoken English, natural and in character; it should add something the caption doesn't, not read the caption out) and a sound line for the ambience and sound effects.`
-        : `${base} The Reel is silent: leave spoken_line and sound empty.`;
+      const n = reelShots();
+      const audio = reelsHaveAudio();
+      const roles = shotRoles(n);
+      const talk = audio
+        ? `The Reel has sound and you talk in it, straight to the camera, in spoken English, natural and in character (at most ${maxSpokenWords(secs)} words per shot). Your lines should flow as one continuous moment across the shots, not separate intros, and add something the caption doesn't. A shot can have no line (leave spoken_line empty) when the action carries it, but at least one shot has you talking. Give each shot a sound line for ambience and sound effects.`
+        : "The Reel is silent: leave every spoken_line and sound empty.";
+      return [
+        n > 1
+          ? `Format: vertical Reel, edited from ${n} shots of ${secs} seconds each (about ${n * secs} seconds). Direct it like a short, punchy skit, not a slideshow:`
+          : `Format: a ${secs}-second vertical Reel in one shot:`,
+        ...roles.map((r, i) => `- Shot ${i + 1}: ${r}.`),
+        n > 1
+          ? "All shots happen in the same place and moment (continuity: same setting, outfit, props, lighting and time of day), but each has a DIFFERENT camera setup (e.g. wide establishing, then medium, then close-up; or a POV or over-the-shoulder angle) so the edit feels alive. Each shot needs real movement: something happens, not just standing and talking."
+          : "Make it a real moment with movement, not just standing and talking.",
+        look === "film" ? FILM_DIRECTION : "",
+        `Fill in shots (exactly ${n}). Also set image_prompts to the same opening-frame prompts in order, video_prompt to shot 1's motion, and spoken_line/sound to shot 1's.`,
+        talk,
+      ]
+        .filter(Boolean)
+        .join("\n");
     }
   }
 }
@@ -178,6 +220,9 @@ async function recentContext(coin: CoinRow) {
   // What fans said lately and how it answered, so posts can call back to the comments.
   const fans = await commentMemories(coin.id, 3).catch(() => []);
   memories.push(...fans.map((f) => `${timeAgo(f.replied_at)}, a fan @${f.username} commented "${f.text.slice(0, 120)}" and you replied "${f.reply_text.slice(0, 120)}"`));
+  // Personal shoutouts it recorded for fans who burned the coin.
+  const shouts = await shoutoutMemories(coin.id, 2).catch(() => []);
+  memories.push(...shouts.map((s) => `${timeAgo(s.done_at)}, a fan burned some of your coin for a personal shoutout, and you recorded one for ${s.recipient} (${s.request.slice(0, 100)})`));
   const latest = posts.rows.find((p) => p.plan?.mood || p.plan?.next_thread);
   const lastPostAt = posts.rows[0]?.created_at ?? null;
   return {
@@ -258,7 +303,7 @@ async function planWithClaude(
   for (let attempt = 0; attempt < 2; attempt++) {
     const user = [
       `Plan your next Instagram post.`,
-      formatInstructions(format),
+      formatInstructions(format, coin.content_settings.reelLook ?? "film"),
       note ? `Reason for this post: ${note}` : "",
       inner,
       storyText,
@@ -284,6 +329,21 @@ async function planWithClaude(
     plan.setting = String(plan.setting ?? "").trim();
     plan.spoken_line = format === "reel" && reelsHaveAudio() ? cleanSpokenLine(plan.spoken_line ?? "", reelSeconds()) : "";
     plan.sound = format === "reel" ? String(plan.sound ?? "").trim().slice(0, 200) : "";
+    if (format === "reel") {
+      const shots = normalizeShots(
+        plan.shots,
+        { image: plan.image_prompts[0] ?? "", motion: plan.video_prompt ?? "", line: plan.spoken_line ?? "", sound: plan.sound ?? "" },
+        reelShots(),
+        reelSeconds(),
+        reelsHaveAudio(),
+      );
+      plan.shots = shots.map((s) => ({ image_prompt: s.image, camera: s.camera, motion: s.motion, spoken_line: s.line, sound: s.sound, talking_to: s.to }));
+      if (shots[0]!.image) plan.image_prompts = shots.map((s) => s.image);
+      plan.video_prompt = shots[0]!.motion;
+      plan.spoken_line = shots.map((s) => s.line).filter(Boolean).join(" ");
+    } else {
+      plan.shots = [];
+    }
     plan.variety = variety;
     plan.episode_recap = arc && opts.story ? String(plan.episode_recap ?? "").trim().slice(0, 300) : "";
     plan.episode_complete = arc && opts.story ? plan.episode_complete === true : false;
@@ -323,8 +383,8 @@ export async function markPlanningFailed(coinId: string, message: string) {
 }
 
 /** Shows on the loading card that a step hit a temporary problem and will be retried shortly. */
-export async function noteRetry(payload: { postId?: string; coinId?: string }, message: string) {
-  const stage = `Hit a snag, retrying shortly (${message.slice(0, 80)})`;
+export async function noteRetry(payload: { postId?: string; coinId?: string }, message: string, stageText?: string) {
+  const stage = stageText ?? `Hit a snag, retrying shortly (${message.slice(0, 80)})`;
   if (payload.postId) await query(`UPDATE posts SET stage = $2 WHERE id = $1 AND status IN ('generating','ready','publishing')`, [payload.postId, stage]);
   else if (payload.coinId) await query(`UPDATE posts SET stage = $2 WHERE coin_id = $1 AND status = 'planned'`, [payload.coinId, stage]);
 }
@@ -367,7 +427,7 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
 
   // Show the loading card straight away. A retry of this job reuses the same card instead of adding another.
   const existing = await one<{ id: string }>(
-    `SELECT id FROM posts WHERE coin_id = $1 AND status = 'planned' AND created_at > now() - interval '2 hours'
+    `SELECT id FROM posts WHERE coin_id = $1 AND status = 'planned' AND created_at > now() - interval '3 days'
      ORDER BY created_at DESC LIMIT 1`,
     [coinId],
   );
@@ -380,7 +440,7 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
     ))!.id;
   if (existing) await query(`UPDATE posts SET format = $2, error = NULL WHERE id = $1`, [postId, format]);
 
-  if (!(await reserveSpend(config.COST_LLM_USD))) throw new Error("Daily AI budget reached");
+  if (!(await reserveSpend(config.COST_LLM_USD))) throw new BudgetError();
   await setProgress(postId, 8, "Writing the idea and caption");
   // A milestone (graduation, all-time high, market cap level, record burn) waiting for its post takes this one.
   let milestone: { kind: string; key: string; note: string } | null = null;
@@ -399,7 +459,14 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
   // Now and then a scheduled post becomes a collab with a friend from the Room.
   const collab = !note && trigger === "schedule" ? await pickCollabPartner(coin).catch(() => null) : null;
   if (collab) trigger = "collab";
-  const { plan, arc } = await planWithClaude(coin, format, note, { story: !isStandalone(count?.n ?? 0, trigger), collab });
+  let planned: Awaited<ReturnType<typeof planWithClaude>>;
+  try {
+    planned = await planWithClaude(coin, format, note, { story: !isStandalone(count?.n ?? 0, trigger), collab });
+  } catch (e) {
+    await releaseSpend(config.COST_LLM_USD).catch(() => {}); // nothing was produced: give the budget back
+    throw e;
+  }
+  const { plan, arc } = planned;
   await query(
     `UPDATE posts SET status = 'generating', concept = $2, plan = $3, cost_usd = $4, progress = GREATEST(progress, 20),
             stage = 'Caption written, starting the visuals' WHERE id = $1`,
@@ -415,17 +482,105 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
  * Draws an image, then (premium tier) has Claude compare it with the token image. If the character
  * doesn't match or the image is broken, it's redrawn once with Claude's note.
  */
-async function drawChecked(postId: string, prompt: string, refs: string[], aspect: "1:1" | "9:16", stage: string) {
+async function drawChecked(postId: string, prompt: string, refs: string[], aspect: "1:1" | "9:16", stage: string, liveAction = false) {
   const ref = refs[0]!;
   const first = await generateImage(prompt, refs, aspect);
   if (!config.QUALITY_CHECK || !(await reserveSpend(config.COST_CHECK_USD))) return first;
   await query(`UPDATE posts SET stage = $2 WHERE id = $1`, [postId, stage]);
-  const review = await reviewImage(first, ref, prompt);
+  const review = await reviewImage(first, ref, prompt, liveAction);
   await query(`UPDATE posts SET cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_CHECK_USD]);
   if (review.pass || !(await reserveSpend(config.COST_IMAGE_USD))) return first;
   logger.info({ postId, fix: review.fix }, "image failed the quality check; redrawing");
   await query(`UPDATE posts SET stage = 'Redrawing to match the character', cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_IMAGE_USD]);
   return generateImage(`${prompt} Important: ${review.fix || "match the reference character exactly."}`, refs, aspect);
+}
+
+/**
+ * Makes a Reel: draws each shot's opening frame (later shots also see the first frame, for continuity),
+ * films all shots at once, has Claude check frames from every shot (re-filming the worst one once if it's
+ * broken or off-character), then edits the shots together into one Instagram-ready video.
+ */
+async function makeReel(
+  postId: string,
+  coin: CoinRow,
+  shots: ReelShot[],
+  refs: string[],
+  fullPrompt: (p: string, i?: number, camera?: string) => string,
+  style: string,
+  liveAction: boolean,
+): Promise<Array<{ type: "image" | "video"; url: string; key: string; role?: string }>> {
+  const n = shots.length;
+  const audio = reelsHaveAudio();
+  const voice = speakingVoice(coin.persona.voice ?? "", personalityText(coin.persona));
+
+  // 1. Opening frames. Shot 1 sets the scene; the others get it as an extra reference so the place,
+  // outfit and lighting carry over between cuts (when the image model takes several references).
+  const frames: string[] = [];
+  for (const [i, s] of shots.entries()) {
+    await setProgress(postId, 22 + (i / n) * 12, n > 1 ? `Setting up shot ${i + 1} of ${n}` : "Drawing the opening frame");
+    const shotRefs = i > 0 && frames[0] && supportsMultiReference(config.FAL_IMAGE_MODEL) ? [...refs, frames[0]] : refs;
+    const continuity = i > 0 ? " Same place, outfit, props and lighting as the first shot (the last reference image), from a different camera angle." : "";
+    const talking = audio && s.line ? " The character's face and mouth are clearly visible and well lit, facing the camera." : "";
+    frames.push(await drawChecked(postId, `${fullPrompt(s.image, 0, s.camera || undefined)}${continuity}${talking}`, shotRefs, "9:16", n > 1 ? `Checking shot ${i + 1}` : "Checking the opening frame", liveAction));
+  }
+
+  // 2. Film every shot in parallel; progress follows the slowest.
+  const stage = audio ? (n > 1 ? `Filming ${n} shots: voice, lip sync and sound` : "Filming the Reel: voice, lip sync and sound") : "Animating the Reel";
+  await setProgress(postId, 35, stage);
+  const fractions = shots.map(() => 0);
+  const promptFor = (s: ReelShot, fix = "") =>
+    reelVideoPrompt({ motion: `${s.motion}${fix ? ` ${fix}` : ""}`, camera: s.camera, to: s.to, spokenLine: audio ? s.line : "", sound: s.sound, voice, style, audio });
+  const film = (i: number, fix = "") =>
+    generateVideo(promptFor(shots[i]!, fix), frames[i]!, (f) => {
+      fractions[i] = f;
+      return setProgress(postId, 35 + Math.min(...fractions) * 47, stage);
+    });
+  const clips = await Promise.all(shots.map((_, i) => film(i)));
+
+  // 3. Quality check: frames from each shot against the character's reference. The worst failing
+  // shot is filmed once more with the reviewer's note (at most one re-shoot per Reel, to cap cost).
+  if (config.REEL_CHECK && config.QUALITY_CHECK) {
+    await setProgress(postId, 83, n > 1 ? "Reviewing the shots" : "Reviewing the Reel");
+    const reviews = await Promise.all(
+      clips.map(async (url, i) => {
+        if (!(await reserveSpend(config.COST_CHECK_USD))) return null;
+        const strip = await frameStrip(url);
+        if (!strip) return null;
+        await query(`UPDATE posts SET cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_CHECK_USD]);
+        return { i, ...(await reviewShot(strip, coin.image_url, `${shots[i]!.camera} ${shots[i]!.motion}`, liveAction)) };
+      }),
+    );
+    const failed = reviews.find((r) => r && !r.pass);
+    if (failed && (await reserveSpend(config.COST_REEL_USD))) {
+      logger.info({ postId, shot: failed.i + 1, fix: failed.fix }, "reel shot failed the check; re-filming");
+      await setProgress(postId, 84, n > 1 ? `Re-filming shot ${failed.i + 1}` : "Re-filming the Reel");
+      await query(`UPDATE posts SET cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_REEL_USD]);
+      try {
+        clips[failed.i] = await film(failed.i, `Important: ${failed.fix || "keep the character exactly like the reference."}`);
+      } catch (e) {
+        logger.warn({ postId, err: (e as Error).message }, "re-film failed; keeping the first take");
+      }
+    }
+  }
+
+  // 4. Edit. ffmpeg joins the shots (hard cuts, levelled sound); without ffmpeg, fal's merge; failing
+  // both, the first shot goes out alone rather than losing the post.
+  await setProgress(postId, 88, n > 1 ? "Editing the shots together" : "Saving the video");
+  let video: { url: string; key: string } | null = null;
+  if (n > 1) {
+    video = await editReel(clips, coin.id).catch((e) => {
+      logger.warn({ postId, err: (e as Error).message }, "reel edit failed");
+      return null;
+    });
+    if (!video) {
+      const merged = await mergeOnFal(clips);
+      if (merged) video = await rehostVideo(merged, coin.id);
+    }
+    if (!video) logger.warn({ postId }, "couldn't edit the shots together; posting the first shot");
+  }
+  video ??= await rehostVideo(clips[0]!, coin.id);
+  const cover = await rehostImageForInstagram(frames[0]!, coin.id, "9:16");
+  return [{ type: "video", ...video }, { type: "image", role: "cover", ...cover }];
 }
 
 /** Job: generate media for a planned post and store it permanently. */
@@ -438,21 +593,41 @@ export async function generatePost(postId: string) {
   const coin = await getCoin(post.coin_id);
   if (!coin) return;
 
-  const style = visualStyleText(coin.persona);
+  // Reels default to a live-action film look; image posts keep the character's own style.
+  const reelLook: ReelLook = coin.content_settings.reelLook ?? "film";
+  const style = post.format === "reel" ? reelStyle(reelLook, visualStyleText(coin.persona)) : visualStyleText(coin.persona);
   // Collab posts draw both characters: this coin's image first, the friend's second.
   const refs = [coin.image_url, ...(post.plan.collab?.imageUrl && supportsMultiReference(config.FAL_IMAGE_MODEL) ? [post.plan.collab.imageUrl] : [])];
   const prompts = post.plan.image_prompts.slice(0, post.format === "carousel" ? 5 : 1);
   if (post.format === "carousel" && prompts.length < 2) throw new PermanentError("Carousel plan has fewer than 2 images");
-  const cost = prompts.length * config.COST_IMAGE_USD + (post.format === "reel" ? config.COST_REEL_USD : 0);
-  if (!(await reserveSpend(cost))) throw new Error("Daily AI budget reached");
+  // Reels: the planned shots (older plans have a single shot in the flat fields).
+  const shots: ReelShot[] =
+    post.format === "reel"
+      ? normalizeShots(
+          post.plan.shots,
+          { image: prompts[0] ?? "", motion: post.plan.video_prompt ?? "", line: post.plan.spoken_line ?? "", sound: post.plan.sound ?? "" },
+          reelShots(),
+          reelSeconds(),
+          reelsHaveAudio(),
+        )
+      : [];
+  const cost =
+    post.format === "reel"
+      ? shots.length * (config.COST_IMAGE_USD + config.COST_REEL_USD)
+      : prompts.length * config.COST_IMAGE_USD;
+  if (!(await reserveSpend(cost))) throw new BudgetError();
 
   // The reference image keeps the character recognisable; everything else must be new, or every post looks the same.
   const v = post.plan.variety;
-  const fullPrompt = (p: string, i = 0) =>
+  const fullPrompt = (p: string, i = 0, camera?: string) =>
     [
       p,
       post.plan.setting ? `Setting: ${post.plan.setting}.` : "",
-      v ? `Camera: ${i === 0 ? v.shot : "a different camera angle from the previous slide"}. Lighting: ${v.lighting}.` : "",
+      camera
+        ? `Camera: ${camera}, vertical 9:16 frame.${v ? ` Lighting: ${v.lighting}.` : ""}`
+        : v
+          ? `Camera: ${i === 0 ? v.shot : "a different camera angle from the previous slide"}. Lighting: ${v.lighting}.`
+          : "",
       "Keep the character's identity from the reference image (same face, markings and colours),",
       "but use a completely new pose, expression, scene, background and composition; do not copy the reference image's pose, framing or background.",
       `Style: ${style}. No text, captions, logos or watermarks.`,
@@ -461,29 +636,9 @@ export async function generatePost(postId: string) {
       .join(" ");
 
   const media: Array<{ type: "image" | "video"; url: string; key: string; role?: string }> = [];
+  try {
   if (post.format === "reel") {
-    await setProgress(postId, 22, "Drawing the opening frame");
-    const keyframe = await drawChecked(postId, fullPrompt(prompts[0]!), refs, "9:16", "Checking the opening frame");
-    const cover = await rehostImageForInstagram(keyframe, coin.id, "9:16");
-    const audio = reelsHaveAudio();
-    const stage = audio && post.plan.spoken_line ? "Filming the Reel: voice, lip sync and sound" : audio ? "Filming the Reel with sound" : "Animating the Reel";
-    await setProgress(postId, 35, stage);
-    // Video takes a few minutes; progress moves from 35% to 85% as it renders.
-    const videoRemote = await generateVideo(
-      reelVideoPrompt({
-        motion: post.plan.video_prompt ?? "",
-        spokenLine: audio ? cleanSpokenLine(post.plan.spoken_line ?? "", reelSeconds()) : "",
-        sound: post.plan.sound ?? "",
-        voice: speakingVoice(coin.persona.voice ?? "", personalityText(coin.persona)),
-        style,
-        audio,
-      }),
-      keyframe,
-      (fraction) => setProgress(postId, 35 + fraction * 50, stage),
-    );
-    await setProgress(postId, 87, "Saving the video");
-    const video = await rehostVideo(videoRemote, coin.id);
-    media.push({ type: "video", ...video }, { type: "image", role: "cover", ...cover });
+    media.push(...(await makeReel(postId, coin, shots, refs, fullPrompt, style, reelLook === "film")));
   } else {
     for (const [i, p] of prompts.entries()) {
       const label = prompts.length > 1 ? `Drawing image ${i + 1} of ${prompts.length}` : "Drawing the image";
@@ -491,6 +646,11 @@ export async function generatePost(postId: string) {
       const remote = await drawChecked(postId, fullPrompt(p, i), refs, "1:1", `${label}: quality check`);
       media.push({ type: "image", ...(await rehostImageForInstagram(remote, coin.id, "1:1")) });
     }
+  }
+  } catch (e) {
+    // The media wasn't made (provider error, out of credits...): don't let failed attempts eat the daily budget.
+    await releaseSpend(cost).catch(() => {});
+    throw e;
   }
   await setProgress(postId, 88, "Finishing the caption");
 
@@ -580,6 +740,37 @@ export async function markPostFailed(postId: string, message: string) {
     postId,
     message.slice(0, 500),
   ]);
+}
+
+/**
+ * Posts that stopped because the daily AI budget ran out (before budget waits existed, they burned through
+ * their retries and failed). Called when the worker starts: they're put back in the queue to pick up again.
+ */
+export async function resumeBudgetStalled() {
+  const jobs = await query<{ id: string; type: string; payload: any }>(
+    `UPDATE jobs SET status = 'queued', attempts = 0, run_at = now(), locked_until = NULL, updated_at = now()
+     WHERE type LIKE 'content.%' AND status IN ('queued','failed') AND last_error LIKE 'Daily AI budget reached%'
+       AND updated_at > now() - interval '3 days'
+     RETURNING id, type, payload`,
+  );
+  for (const j of jobs.rows) {
+    if (j.type === "content.plan" && j.payload?.coinId) {
+      await query(
+        `UPDATE posts SET status = 'planned', error = NULL, stage = 'Resuming' WHERE id = (
+           SELECT id FROM posts WHERE coin_id = $1 AND status = 'failed' AND error LIKE 'Daily AI budget reached%'
+           ORDER BY created_at DESC LIMIT 1)
+         AND NOT EXISTS (SELECT 1 FROM posts WHERE coin_id = $1 AND status = 'planned')`,
+        [j.payload.coinId],
+      );
+    } else if (j.payload?.postId) {
+      await query(
+        `UPDATE posts SET status = CASE WHEN status = 'failed' THEN $2 ELSE status END, error = NULL, stage = 'Resuming'
+         WHERE id = $1 AND status <> 'published'`,
+        [j.payload.postId, j.type === "content.publish" ? "ready" : "generating"],
+      );
+    }
+  }
+  if (jobs.rows.length) logger.info({ n: jobs.rows.length }, "resumed posts that were waiting on the AI budget");
 }
 
 /** Called every minute: enqueue plans for coins whose next post is due. */

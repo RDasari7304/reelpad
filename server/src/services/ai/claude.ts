@@ -16,6 +16,8 @@ export async function structured<T>(opts: {
   maxTokens?: number;
   /** Public image URLs to show Claude along with the prompt. */
   images?: string[];
+  /** Images sent inline (base64), shown after the URL images. */
+  imageData?: Array<{ data: string; mediaType: "image/jpeg" | "image/png" }>;
   /** Overrides ANTHROPIC_MODEL for this call. */
   model?: string;
 }): Promise<T> {
@@ -41,6 +43,7 @@ export async function structured<T>(opts: {
           role: "user",
           content: [
             ...(opts.images ?? []).map((url) => ({ type: "image", source: { type: "url", url } })),
+            ...(opts.imageData ?? []).map((img) => ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } })),
             { type: "text", text: `${opts.user}\n\nRespond with: ${opts.toolDescription}` },
           ],
         },

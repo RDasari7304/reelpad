@@ -8,7 +8,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { config, isProd } from "./config.js";
-import { reelSeconds, reelsHaveAudio } from "./services/ai/fal.js";
+import { reelSeconds, reelShots, reelsHaveAudio } from "./services/ai/fal.js";
 import { migrate } from "./db/migrate.js";
 import { pool } from "./db/pool.js";
 import { adminRouter } from "./http/admin.js";
@@ -16,6 +16,7 @@ import { authRouter, readSession } from "./http/auth.js";
 import { coinsRouter, postsRouter } from "./http/coins.js";
 import { instagramRouter } from "./http/instagram.js";
 import { roomRouter } from "./http/room.js";
+import { shoutoutsRouter } from "./http/shoutouts.js";
 import { errorHandler } from "./http/util.js";
 import { PERSONALITIES, VISUAL_STYLES } from "./domain/catalog.js";
 import { logger } from "./lib/logger.js";
@@ -78,12 +79,13 @@ app.get("/api/config", (_req, res) => {
       treasuryMinBuySol: config.TREASURY_MIN_BUY_SOL,
       treasuryBuyIntervalMin: config.TREASURY_BUY_INTERVAL_MIN,
     },
-    reels: { seconds: reelSeconds(), audio: reelsHaveAudio() },
+    reels: { seconds: reelSeconds() * reelShots(), shots: reelShots(), audio: reelsHaveAudio() },
     catalog: { personalities: PERSONALITIES, visualStyles: VISUAL_STYLES },
   });
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api", shoutoutsRouter);
 app.use("/api/coins", coinsRouter);
 app.use("/api/posts", postsRouter);
 app.use("/api/instagram", instagramRouter);

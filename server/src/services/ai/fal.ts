@@ -1,6 +1,6 @@
 import { config } from "../../config.js";
 import { imageInput } from "../../domain/images.js";
-import { clipSeconds, supportsAudio, videoFamily, videoInput } from "../../domain/reel.js";
+import { clampShots, clipSeconds, supportsAudio, videoFamily, videoInput } from "../../domain/reel.js";
 
 /**
  * fal.ai queue API: submit, poll status, fetch result. Model IDs are configurable via env so
@@ -73,7 +73,7 @@ export async function generateVideo(prompt: string, keyframeUrl: string, onProgr
   const model = config.FAL_REEL_MODEL;
   const out = await run<{ video?: { url: string } }>(
     model,
-    videoInput(model, prompt, keyframeUrl, config.REEL_SECONDS, config.REEL_AUDIO),
+    videoInput(model, prompt, keyframeUrl, config.REEL_SECONDS, config.REEL_AUDIO, config.REEL_RESOLUTION),
     15 * 60_000,
     // Eases toward 95% so a slow render keeps moving without ever claiming to be finished.
     onProgress ? (elapsed) => onProgress(Math.min(0.95, 1 - Math.exp(-elapsed / EXPECTED_VIDEO_MS * 1.6))) : undefined,
@@ -88,3 +88,6 @@ export const reelsHaveAudio = () => config.REEL_AUDIO && supportsAudio(config.FA
 
 /** The clip length the configured model will actually render. */
 export const reelSeconds = () => clipSeconds(videoFamily(config.FAL_REEL_MODEL), config.REEL_SECONDS);
+
+/** Shots per Reel (each its own clip, edited together). */
+export const reelShots = () => clampShots(config.REEL_SHOTS);

@@ -46,6 +46,8 @@ export interface ContentSettings {
   postAboutBurns?: boolean;
   commentReplies?: boolean;
   commentRepliesPerDay?: number;
+  /** Reels: "film" = live-action cinematic footage, "match" = the character's own art style. */
+  reelLook?: "film" | "match";
 }
 
 export interface Coin {
@@ -171,6 +173,40 @@ export interface CommentsResponse {
   stats: { today: number; waiting: number; total: number } | null;
 }
 
+export interface Shoutout {
+  id: string;
+  coinId: string;
+  format: "video" | "photo";
+  recipient: string;
+  status: "awaiting_burn" | "queued" | "making" | "done" | "failed" | "expired";
+  progress: number;
+  stage: string | null;
+  error: string | null;
+  media: Array<{ type: "image" | "video"; url: string; role?: string }>;
+  note: string | null;
+  spokenLine: string | null;
+  burnSig: string | null;
+  tokensBurned: string | null;
+  tokens: string;
+  fan: string;
+  createdAt: string;
+  doneAt: string | null;
+  mine: boolean;
+  request: string | null;
+  public: boolean;
+}
+export interface ShoutoutPrice {
+  sol: number;
+  tokens: string;
+  raw: string;
+}
+export interface ShoutoutsResponse {
+  pricing: { enabled: boolean; decimals: number; photo: ShoutoutPrice | null; video: ShoutoutPrice | null } | null;
+  wall: Shoutout[];
+  mine: Shoutout[];
+  stats: { shoutouts: number; tokensBurned: string };
+}
+
 export interface TreasuryView {
   agentWallet: string;
   solBalance: number | null;
@@ -200,7 +236,7 @@ export interface AppConfig {
   treasuryDryRun: boolean;
   igAccessMode: "testers" | "open";
   limits: { minPostsPerDay: number; maxPostsPerDay: number; maxReelsPerWeek: number; nativeBuybackShare?: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
-  reels?: { seconds: number; audio: boolean };
+  reels?: { seconds: number; shots?: number; audio: boolean };
   catalog: {
     personalities: Record<string, string>;
     visualStyles: Record<string, string>;

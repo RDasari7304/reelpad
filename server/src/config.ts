@@ -61,9 +61,9 @@ const schema = z.object({
   // Only needed if your API key covers several workspaces (Console → Settings → Workspaces shows the ID).
   ANTHROPIC_WORKSPACE_ID: z.string().optional(),
 
-  // premium (default) = best models; standard = the original cheaper models; custom = use the
+  // cinema (default) = premium with full Veo 3.1 Reels; premium = Veo 3.1 Fast Reels; standard = the original cheaper models; custom = use the
   // ANTHROPIC_MODEL / FAL_*_MODEL / REEL_SECONDS / COST_* / QUALITY_CHECK values set below.
-  GENERATION_TIER: z.enum(["standard", "premium", "custom"]).default("premium"),
+  GENERATION_TIER: z.enum(["standard", "premium", "cinema", "custom"]).default("cinema"),
   // Claude reviews every generated image against the token image and redraws it once if the character doesn't match.
   QUALITY_CHECK: bool(true),
   QUALITY_CHECK_MODEL: z.string().default("claude-sonnet-5-5"),
@@ -73,10 +73,14 @@ const schema = z.object({
   // Reels: a video model with native audio, so the character speaks (lip-synced) with sound effects.
   // Supported: fal-ai/kling-video/v2.6/pro/image-to-video (default) or fal-ai/veo3.1/image-to-video.
   FAL_REEL_MODEL: z.string().default("fal-ai/kling-video/v2.6/pro/image-to-video"),
-  REEL_SECONDS: num(5), // Kling: 5 or 10. Veo: 4, 6 or 8.
+  REEL_SECONDS: num(5), // length of each shot. Kling: 5 or 10. Veo: 4, 6 or 8.
+  REEL_SHOTS: num(1), // shots per Reel (1-3), edited together into one video
+  REEL_RESOLUTION: z.enum(["720p", "1080p"]).default("1080p"),
+  // Claude watches frames from every rendered shot and re-renders one that's broken or off-character.
+  REEL_CHECK: bool(true),
   REEL_AUDIO: bool(true), // false = silent Reels (cheaper)
   COST_IMAGE_USD: num(0.04),
-  COST_REEL_USD: num(0.7), // Kling 2.6 Pro with audio is about $0.14 per second
+  COST_REEL_USD: num(0.7), // per shot. Kling 2.6 Pro with audio is about $0.14 per second
   COST_LLM_USD: num(0.02),
   DAILY_AI_BUDGET_USD: num(150),
 
@@ -97,6 +101,10 @@ const schema = z.object({
   // burning the platform's native coin; the rest buys back and burns the coin itself.
   NATIVE_COIN_MINT: z.string().default("2CZJzBoeS17uAQbAdBcrkpEJjPixEcsFvJAhwRV9pump"),
   NATIVE_BUYBACK_SHARE: num(0.5),
+  // Burn-for-a-Shoutout: what a shoutout costs, as the SOL value of the coin a fan burns for it.
+  SHOUTOUTS_ENABLED: bool(true),
+  SHOUTOUT_PHOTO_SOL: num(0.05),
+  SHOUTOUT_VIDEO_SOL: num(0.25),
   TRADE_CHUNK_SOL: num(1), // large buybacks go out in pieces of at most this much SOL
   NATIVE_COIN_SYMBOL: z.string().default("REELPAD"), // shown until the real ticker is looked up
   // Optional: a Jupiter API key (portal.jup.ag). Without one the free lite API is used.

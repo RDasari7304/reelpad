@@ -7,12 +7,13 @@ import { ContentEditor, PersonaSummary } from "../editors";
 import { CommentsTab } from "../CommentsTab";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { StoryCard } from "../StoryCard";
+import { ShoutoutsTab } from "../Shoutouts";
 import { InstagramConnect } from "../InstagramConnect";
 import { DexScreenerChart } from "../DexScreenerChart";
 import { PriceChart } from "../PriceChart";
 import { useSession } from "../session";
 
-type Tab = "chart" | "posts" | "comments" | "treasury" | "settings";
+type Tab = "chart" | "posts" | "comments" | "shoutouts" | "treasury" | "settings";
 
 const STATUS_LABEL: Record<string, string> = {
   generating: "Making it",
@@ -338,7 +339,7 @@ export default function CoinPage() {
   const { wallet, signIn, signingIn } = useSession();
   const [coin, setCoin] = useState<Coin | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [tab, setTab] = useState<Tab>("posts");
+  const [tab, setTab] = useState<Tab>(() => (params.get("tab") === "shoutouts" ? "shoutouts" : "posts"));
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -398,7 +399,7 @@ export default function CoinPage() {
   const launched = params.get("launched") === "1";
   const igActive = coin.instagram?.status === "active";
   const hasChart = coin.status === "live" && !!coin.mint;
-  const shown: Tab = tab === "chart" && !hasChart ? "posts" : tab;
+  const shown: Tab = (tab === "chart" || tab === "shoutouts") && !hasChart ? "posts" : tab;
 
   const generate = async () => {
     try {
@@ -502,9 +503,9 @@ export default function CoinPage() {
       {owner && coin.status === "live" && !igActive && <InstagramConnect coin={coin} launched={launched} onChange={setCoin} />}
 
       <nav className="tabs" role="tablist">
-        {(["posts", ...(igActive || owner ? ["comments"] : []), ...(hasChart ? ["chart"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
+        {(["posts", ...(igActive || owner ? ["comments"] : []), ...(hasChart ? ["chart", "shoutouts"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={shown === t} className={shown === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
-            {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "comments" ? "Comments" : t === "treasury" ? "Treasury" : "Settings"}
+            {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "comments" ? "Comments" : t === "shoutouts" ? "Shoutouts" : t === "treasury" ? "Treasury" : "Settings"}
           </button>
         ))}
         {owner && igActive && coin.status === "live" && shown === "posts" && (
@@ -518,6 +519,11 @@ export default function CoinPage() {
         // Its own error boundary: if the chart ever fails, only the chart shows a message; the page keeps working.
         <ErrorBoundary fallback={<p className="empty-line">The chart couldn't be shown right now. Posts and Treasury still work.</p>}>
           <ChartTab coinKey={coin.mint!} symbol={coin.symbol} mint={coin.mint!} />
+        </ErrorBoundary>
+      )}
+      {shown === "shoutouts" && hasChart && (
+        <ErrorBoundary fallback={<p className="empty-line">Shoutouts couldn't be shown right now.</p>}>
+          <ShoutoutsTab coin={coin} />
         </ErrorBoundary>
       )}
       {shown === "comments" && <CommentsTab coin={coin} owner={owner} onSettings={() => setTab("settings")} />}

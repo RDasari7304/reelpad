@@ -23,6 +23,7 @@ export const defaultContent = (): ContentSettings => ({
   postAboutBurns: true,
   commentReplies: true,
   commentRepliesPerDay: 40,
+  reelLook: "film",
 });
 
 function TagInput({
@@ -139,14 +140,16 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
 
 const formatLabels = (config: AppConfig): Record<Format, [string, string]> => {
   const secs = config.reels?.seconds ?? 5;
+  const shots = config.reels?.shots ?? 1;
+  const cut = shots > 1 ? `, edited from ${shots} shots` : "";
   return {
     image: ["Image posts", "A single image with a caption."],
     carousel: ["Carousels", "Three to five images telling a short story."],
     reel: [
       "Reels",
       config.reels?.audio === false
-        ? `${secs}-second AI video clips. These cost the most to make, so they're capped per week.`
-        : `${secs}-second AI videos with sound, where your character talks to the camera. These cost the most to make, so they're capped per week.`,
+        ? `About ${secs}-second AI videos${cut}. These cost the most to make, so they're capped per week.`
+        : `About ${secs}-second AI videos with sound${cut}, where your character talks to the camera. These cost the most to make, so they're capped per week.`,
     ],
   };
 };
@@ -207,6 +210,22 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
           <small>New posts wait on your coin page until you approve them. Off means the character posts on its own.</small>
         </span>
       </label>
+      {value.formats.includes("reel") && (
+        <label className="switch">
+          <input
+            type="checkbox"
+            checked={value.reelLook !== "match"}
+            onChange={(e) => set("reelLook", e.target.checked ? "film" : "match")}
+          />
+          <span>
+            <strong>Film-style Reels</strong>
+            <small>
+              Reels are shot like a scene from a movie: a live-action version of your character in real places, with other
+              people in the scene. Off means Reels use the character's own art style, like its image posts.
+            </small>
+          </span>
+        </label>
+      )}
       <label className="switch">
         <input
           type="checkbox"

@@ -44,6 +44,8 @@ export const contentSettingsSchema = z.object({
   // The influencer answers comments on its posts in character.
   commentReplies: z.boolean().default(true),
   commentRepliesPerDay: z.number().int().min(5).max(150).default(40),
+  // Reels: "film" = live-action, cinematic footage; "match" = the character's own art style.
+  reelLook: z.enum(["film", "match"]).default("film"),
 });
 
 const optionalUrl = z

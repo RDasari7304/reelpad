@@ -394,8 +394,12 @@ describe("generation tiers", () => {
     const k = imageInput("fal-ai/flux-pro/kontext", "p", "ref", "1:1");
     assert.equal(k.image_url, "ref");
   });
-  it("Veo reels are 6 seconds", () => {
-    assert.equal(clipSeconds(videoFamily(TIERS.premium.FAL_REEL_MODEL), TIERS.premium.REEL_SECONDS), 6);
+  it("premium Reels are three 8-second 1080p shots; cinema uses full Veo 3.1", () => {
+    assert.equal(clipSeconds(videoFamily(TIERS.premium.FAL_REEL_MODEL), TIERS.premium.REEL_SECONDS), 8);
+    assert.equal(TIERS.premium.REEL_SHOTS, 3);
+    assert.equal(TIERS.premium.REEL_RESOLUTION, "1080p");
+    assert.equal(TIERS.cinema.FAL_REEL_MODEL, "fal-ai/veo3.1/image-to-video");
+    assert.equal(applyTier({ ...base, GENERATION_TIER: "cinema" as const }).COST_REEL_USD, 3.2);
   });
 });
 

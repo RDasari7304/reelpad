@@ -13,7 +13,8 @@ export type JobType =
   | "launch.confirm"
   | "room.converse"
   | "comments.sync"
-  | "comments.respond";
+  | "comments.respond"
+  | "shoutout.generate";
 
 export interface Job {
   id: string;
@@ -37,7 +38,7 @@ export async function enqueue(
   return (r.rowCount ?? 0) > 0;
 }
 
-const LOCK_SECONDS = 15 * 60; // video generation can take several minutes
+const LOCK_SECONDS = 40 * 60; // a multi-shot Reel (frames, filming, a possible re-shoot, editing) can take 20+ minutes
 
 export async function claim(limit: number): Promise<Job[]> {
   const r = await pool.query<Job>(
@@ -72,6 +73,16 @@ export async function fail(job: Job, err: unknown, retryable = true) {
     [job.id, final ? "failed" : "queued", message.slice(0, 2000), String(backoffSec)],
   );
   return final;
+}
+
+/** Puts a job back in the queue for later without counting it as a failed attempt (e.g. budget used up). */
+export async function defer(job: Job, seconds: number, message: string) {
+  await query(
+    `UPDATE jobs SET status = 'queued', attempts = GREATEST(0, attempts - 1), last_error = $2, locked_until = NULL,
+            run_at = now() + ($3 || ' seconds')::interval, updated_at = now()
+     WHERE id = $1`,
+    [job.id, message.slice(0, 2000), String(seconds)],
+  );
 }
 
 export async function pruneOldJobs() {

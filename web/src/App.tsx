@@ -10,6 +10,7 @@ import Room from "./pages/Room";
 import CoinPage from "./pages/Coin";
 import Mine from "./pages/Mine";
 import Admin from "./pages/Admin";
+import ShoutoutPage from "./pages/Shoutout";
 import { DataDeletion, Privacy, Terms } from "./pages/Legal";
 
 const RPC = import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta");
@@ -83,6 +84,7 @@ export default function App() {
                 <Route path="/room" element={<Room />} />
                 <Route path="/coin/:key" element={<CoinPage />} />
                 <Route path="/mine" element={<Mine />} />
+                <Route path="/shoutout/:id" element={<ShoutoutPage />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/privacy" element={<Privacy />} />
