@@ -69,6 +69,7 @@ app.get("/api/config", (_req, res) => {
     treasuryDryRun: config.TREASURY_DRY_RUN,
     igAccessMode: config.IG_ACCESS_MODE,
     limits: {
+      minPostsPerDay: config.CONTENT_MIN_POSTS_PER_DAY,
       maxPostsPerDay: config.CONTENT_MAX_POSTS_PER_DAY,
       maxReelsPerWeek: config.CONTENT_MAX_REELS_PER_WEEK,
       treasuryMaxSolPerAction: config.TREASURY_MAX_SOL_PER_ACTION,

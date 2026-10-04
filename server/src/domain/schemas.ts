@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { ALL_PERSONALITIES, VISUAL_STYLES } from "./catalog.js";
 import { INSTAGRAM_USERNAME_MESSAGE, normalizeInstagramUsername } from "./instagram.js";
+import { POSTS_PER_DAY } from "./limits.js";
+
+export { POSTS_PER_DAY };
 
 const keyOrCustom = (keys: readonly string[]) =>
   z.union([z.enum(keys as [string, ...string[]]), z.literal("custom")]).nullable().optional();
@@ -27,7 +30,12 @@ export const personaSchema = z
 
 export const contentSettingsSchema = z.object({
   formats: z.array(z.enum(["image", "carousel", "reel"])).min(1).default(["image", "carousel"]),
-  postsPerDay: z.number().int().min(1).max(24).default(3),
+  // Clamped rather than rejected, so coins saved with older, lower values still save cleanly.
+  postsPerDay: z
+    .number()
+    .int()
+    .optional()
+    .transform((v) => Math.min(POSTS_PER_DAY.max, Math.max(POSTS_PER_DAY.min, v ?? POSTS_PER_DAY.min))),
   reelsPerWeek: z.number().int().min(0).max(49).default(3),
   autoPublish: z.boolean().default(true),
   hashtags: z.array(z.string().regex(/^[\p{L}\p{N}_]{1,40}$/u, "Hashtags: letters, numbers, underscores")).max(8).default([]),

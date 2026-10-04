@@ -23,7 +23,7 @@ services:
       - key: RUN_WORKER
         value: "true"
       - key: TREASURY_DRY_RUN
-        value: "true"
+        value: "false"
       # Switch to "open" once Meta approves the app
       - key: IG_ACCESS_MODE
         value: testers

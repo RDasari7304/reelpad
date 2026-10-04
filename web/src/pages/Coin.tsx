@@ -1,9 +1,9 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, type Coin, type ContentSettings, type Persona, type Post, type TreasuryView } from "../api";
+import { api, type Coin, type ContentSettings, type Post, type TreasuryView } from "../api";
 import { Address, Notice } from "../components";
-import { ContentEditor, PersonaEditor } from "../editors";
+import { ContentEditor, PersonaSummary } from "../editors";
 import { InstagramConnect } from "../InstagramConnect";
 import { useSession } from "../session";
 
@@ -238,7 +238,6 @@ function TreasuryTab({ coin }: { coin: Coin }) {
 
 function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void }) {
   const { config } = useSession();
-  const [persona, setPersona] = useState<Persona>(coin.persona);
   const [content, setContent] = useState<ContentSettings>(coin.contentSettings);
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -270,11 +269,11 @@ function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void
         </label>
       </div>
       <h3 className="sub-section">Character</h3>
-      <PersonaEditor value={persona} onChange={setPersona} config={config} />
+      <PersonaSummary persona={coin.persona} config={config} />
       <h3 className="sub-section">Posting</h3>
       <ContentEditor value={content} onChange={setContent} config={config} />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-      <button className="btn btn-primary" disabled={busy} onClick={() => save({ persona, contentSettings: content })}>
+      <button className="btn btn-primary" disabled={busy} onClick={() => save({ contentSettings: content })}>
         Save changes
       </button>
     </div>

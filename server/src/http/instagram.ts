@@ -76,7 +76,10 @@ instagramRouter.get(
       if (!hasPosts) {
         // First connection: start the first post (a Reel when Reels are on) right now, not on the next schedule tick,
         // and schedule the regular posts after it.
-        const perDay = Math.min(coin.content_settings.postsPerDay ?? 3, config.CONTENT_MAX_POSTS_PER_DAY);
+        const perDay = Math.min(
+          config.CONTENT_MAX_POSTS_PER_DAY,
+          Math.max(config.CONTENT_MIN_POSTS_PER_DAY, coin.content_settings.postsPerDay ?? config.CONTENT_MIN_POSTS_PER_DAY),
+        );
         await query(`UPDATE coins SET next_post_at = $2 WHERE id = $1`, [coin.id, nextPostAt(new Date(), perDay)]);
         await enqueue("content.plan", { coinId: coin.id, trigger: "first" }, { dedupeKey: `plan:${coin.id}`, maxAttempts: 3 });
       } else {

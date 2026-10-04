@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AppConfig, ContentSettings, Format, Persona } from "./api";
+import { humanize, type AppConfig, type ContentSettings, type Format, type Persona } from "./api";
 import { ChipChoice, Field } from "./components";
 
 export const defaultPersona = (): Persona => ({
@@ -16,7 +16,7 @@ export const defaultPersona = (): Persona => ({
 
 export const defaultContent = (): ContentSettings => ({
   formats: ["image", "carousel"],
-  postsPerDay: 3,
+  postsPerDay: 12,
   reelsPerWeek: 3,
   autoPublish: true,
   hashtags: [],
@@ -164,7 +164,10 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
       <div className="grid-2">
         <Field label="Posts per day" hint="The first post (a Reel, if Reels are on) starts as soon as Instagram is connected.">
           <select className="input" value={value.postsPerDay} onChange={(e) => set("postsPerDay", Number(e.target.value))}>
-            {Array.from({ length: config.limits.maxPostsPerDay }, (_, i) => i + 1).map((n) => (
+            {Array.from(
+              { length: config.limits.maxPostsPerDay - (config.limits.minPostsPerDay ?? 1) + 1 },
+              (_, i) => i + (config.limits.minPostsPerDay ?? 1),
+            ).map((n) => (
               <option key={n} value={n}>
                 {n}
               </option>
@@ -232,6 +235,40 @@ export function TreasuryExplainer({ config }: { config: AppConfig }) {
         {l.treasuryMaxSolPerDay} SOL a day; extra fees carry over. Nobody can withdraw from the treasury, including you, and
         every buyback and burn is listed publicly on the coin's Treasury tab.
       </p>
+    </div>
+  );
+}
+
+/** Read-only view of a launched coin's character. It's locked after launch so the influencer stays consistent. */
+export function PersonaSummary({ persona, config }: { persona: Persona; config: AppConfig }) {
+  const personality =
+    persona.personality === "custom"
+      ? persona.personalityCustom
+      : persona.personality
+        ? `${humanize(persona.personality)}. ${config.catalog.personalities[persona.personality] ?? ""}`
+        : "";
+  const look =
+    persona.visualStyle === "custom" ? persona.visualStyleCustom : humanize(persona.visualStyle || "3d_render");
+  const rows: Array<[string, string]> = [
+    ["Personality", personality],
+    ["Look", look],
+    ["Backstory", persona.backstory],
+    ["Voice", persona.voice],
+    ["Recurring themes", (persona.themes ?? []).join(", ")],
+    ["Never posts about", persona.avoid],
+    ["Caption language", persona.language || "English"],
+  ];
+  return (
+    <div className="editor persona-locked">
+      <p className="sub-hint">Locked after launch, so your character stays consistent from post to post.</p>
+      <dl className="locked-list">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value?.trim() ? value : <span className="muted">Not set</span>}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

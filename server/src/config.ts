@@ -68,11 +68,12 @@ const schema = z.object({
   COST_LLM_USD: num(0.02),
   DAILY_AI_BUDGET_USD: num(50),
 
-  CONTENT_MAX_POSTS_PER_DAY: num(12), // most posts a creator can schedule per day (Instagram allows 100 per 24h)
+  CONTENT_MIN_POSTS_PER_DAY: num(12), // every coin posts at least this often
+  CONTENT_MAX_POSTS_PER_DAY: num(24), // most posts a creator can schedule per day (Instagram allows 100 per 24h)
   CONTENT_MAX_REELS_PER_WEEK: num(21), // most Reels per week; Reels cost the most to generate
   CAPTION_FOOTER: z.string().default("AI-generated persona. Not financial advice."),
 
-  TREASURY_DRY_RUN: bool(true),
+  TREASURY_DRY_RUN: bool(false), // true = log buybacks/burns without sending them (testing only)
   TREASURY_MAX_SOL_PER_ACTION: num(0.5), // most SOL one buyback can spend
   TREASURY_MAX_SOL_PER_DAY: num(2), // most SOL a coin's buybacks can spend per 24h; extra fees carry over
   TREASURY_MIN_INTERVAL_MIN: num(15), // how often each treasury is checked (fees claimed, price recorded)

@@ -10,7 +10,6 @@ import {
   coinDraftSchema,
   contentSettingsSchema,
   instagramUsernameSchema,
-  personaSchema,
 } from "../domain/schemas.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
 import { upsertAccessRequest } from "../services/instagramAccess.js";
@@ -22,6 +21,9 @@ import { requireAuth } from "./auth.js";
 import { asyncHandler, HttpError } from "./util.js";
 
 export const coinsRouter = Router();
+
+/** How many "Make a post now" posts a coin can make per 24 hours, on top of its schedule. */
+const MANUAL_POSTS_PER_DAY = 4;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -247,24 +249,18 @@ coinsRouter.patch(
     const coin = await ownedCoin(String(req.params.id), req.wallet);
     const body = z
       .object({
-        persona: personaSchema.optional(),
         contentSettings: contentSettingsSchema.optional(),
         contentPaused: z.boolean().optional(),
       })
       .parse(req.body);
-    // The treasury is automatic buyback-and-burn: creators can't change or pause it (admins can, from Admin).
+    // Only posting settings can change after launch. The character (personality, look, backstory, voice,
+    // themes, topics to avoid, language) is locked, and the treasury is automatic (admins can pause it).
     const updated = await one<CoinRow>(
       `UPDATE coins SET
-         persona = COALESCE($2, persona),
-         content_settings = COALESCE($3, content_settings),
-         content_paused = COALESCE($4, content_paused)
+         content_settings = COALESCE($2, content_settings),
+         content_paused = COALESCE($3, content_paused)
        WHERE id = $1 RETURNING *`,
-      [
-        coin.id,
-        body.persona ? JSON.stringify(body.persona) : null,
-        body.contentSettings ? JSON.stringify(body.contentSettings) : null,
-        body.contentPaused ?? null,
-      ],
+      [coin.id, body.contentSettings ? JSON.stringify(body.contentSettings) : null, body.contentPaused ?? null],
     );
     res.json({ coin: publicCoin(updated!, { isOwner: true }) });
   }),
@@ -280,7 +276,9 @@ coinsRouter.post(
       `SELECT count(*)::int AS n FROM posts WHERE coin_id = $1 AND trigger = 'manual' AND created_at > now() - interval '24 hours'`,
       [coin.id],
     );
-    if ((manualToday?.n ?? 0) >= 3) throw new HttpError(429, "Manual post limit reached (3 per day)");
+    if ((manualToday?.n ?? 0) >= MANUAL_POSTS_PER_DAY) {
+      throw new HttpError(429, `You've used all ${MANUAL_POSTS_PER_DAY} manual posts for today. Scheduled posts keep going.`);
+    }
     const note = z.object({ note: z.string().max(300).optional() }).parse(req.body ?? {}).note;
     const queued = await enqueue("content.plan", { coinId: coin.id, trigger: "manual", note }, { dedupeKey: `plan:${coin.id}` });
     res.json({ queued });

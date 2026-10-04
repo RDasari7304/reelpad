@@ -448,7 +448,10 @@ export async function scheduleDuePosts() {
      LIMIT 50`,
   );
   for (const c of due.rows) {
-    const perDay = Math.min(c.content_settings.postsPerDay ?? 1, config.CONTENT_MAX_POSTS_PER_DAY);
+    const perDay = Math.min(
+      config.CONTENT_MAX_POSTS_PER_DAY,
+      Math.max(config.CONTENT_MIN_POSTS_PER_DAY, c.content_settings.postsPerDay ?? config.CONTENT_MIN_POSTS_PER_DAY),
+    );
     await query(`UPDATE coins SET next_post_at = $2 WHERE id = $1`, [c.id, nextPostAt(new Date(), perDay)]);
     await enqueue("content.plan", { coinId: c.id, trigger: "schedule" }, { dedupeKey: `plan:${c.id}`, maxAttempts: 3 });
   }

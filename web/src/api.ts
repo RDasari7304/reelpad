@@ -129,7 +129,7 @@ export interface AppConfig {
   agentGasSol: number;
   treasuryDryRun: boolean;
   igAccessMode: "testers" | "open";
-  limits: { maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
+  limits: { minPostsPerDay: number; maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
   catalog: {
     personalities: Record<string, string>;
     visualStyles: Record<string, string>;

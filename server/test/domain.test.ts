@@ -6,6 +6,7 @@ import { CAMERA_SHOTS, CAPTION_STYLES, captionOpener, LIGHTING, pickVariety, POS
 import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
+import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { chooseFormat, firstPostFormat, nextPostAt } from "../src/domain/schedule.ts";
 import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
 import { decrypt, decryptString, encrypt, parseMasterKey } from "../src/lib/crypto.ts";
@@ -252,5 +253,16 @@ describe("emoji limit", () => {
   });
   it("is applied when a caption is finalised", () => {
     assert.equal(finalizeCaption("gm 🚀🐶🌕", [], "AI persona."), "gm 🚀\n\nAI persona.");
+  });
+});
+
+describe("posting frequency", () => {
+  it("holds every coin to 12 to 24 posts a day", () => {
+    assert.deepEqual(POSTS_PER_DAY, { min: 12, max: 24 });
+  });
+  it("schedules 12 a day as roughly every 2 hours", () => {
+    const from = new Date("2026-01-01T00:00:00Z");
+    const gap = nextPostAt(from, POSTS_PER_DAY.min, () => 0.5).getTime() - from.getTime();
+    assert.equal(gap, 2 * 3600_000);
   });
 });
