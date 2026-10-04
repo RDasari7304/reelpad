@@ -1707,18 +1707,21 @@ textarea.input {
 
 /* ── Recent posts feed ── */
 .feed-page {
-  max-width: 600px;
+  max-width: none;
 }
 .feed-intro h1 {
   font: 800 var(--t-2xl) / 1.1 var(--display);
   margin: 0 0 8px;
 }
+/* Cards fill the full width side by side, then wrap to the next row. */
 .feed {
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 22px;
+  align-items: start;
 }
 .feed-loading {
+  display: block;
   min-height: 60vh;
   border-radius: 14px;
   background: linear-gradient(90deg, var(--paper-deep), var(--paper), var(--paper-deep));
@@ -1798,14 +1801,8 @@ textarea.input {
 .feed-media video {
   display: block;
   width: 100%;
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 5;
   object-fit: cover;
-}
-.feed-reel img,
-.feed-reel video {
-  aspect-ratio: 9 / 16;
-  max-height: 78vh;
-  object-fit: contain;
 }
 .feed-carousel {
   position: relative;
@@ -1878,4 +1875,8 @@ textarea.input {
 }
 @media (prefers-reduced-motion: reduce) {
   .feed-card.fresh, .feed-loading { animation: none; }
+}
+
+@media (max-width: 600px) {
+  .feed { grid-template-columns: 1fr; }
 }
