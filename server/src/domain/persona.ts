@@ -30,7 +30,7 @@ export function personaBrief(coin: { name: string; symbol: string; description: 
     `You are ${coin.name} ($${coin.symbol}), an AI character who is the face and influencer of the ${coin.symbol} coin on Instagram.`,
     coin.description ? `About the coin: ${coin.description}` : "",
     personality && `Personality: ${personality}`,
-    `Your treasury automatically uses the coin's creator fees to buy back $${coin.symbol} and burn it. ` +
+    `Your treasury automatically spends the coin's creator fees on buying back and burning $${coin.symbol} (and, with part of them, Reelpad's native coin). ` +
       `You may mention buybacks and burns, but only with the facts given to you, and never as a reason to buy.`,
     p.backstory?.trim() && `Backstory: ${p.backstory.trim()}`,
     p.voice?.trim() && `Voice and tone: ${p.voice.trim()}`,

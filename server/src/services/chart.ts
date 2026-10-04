@@ -130,3 +130,46 @@ export async function getChart(coinId: string, mint: string, tf: Timeframe): Pro
   if (chartCache.size > 2000) chartCache.delete(chartCache.keys().next().value!);
   return value;
 }
+
+// ---------- token stats (activity checks, native coin info) ----------
+
+export interface TokenStats {
+  mint: string;
+  symbol: string | null;
+  volume24hUsd: number | null;
+  mcapUsd: number | null;
+}
+
+const num = (v: unknown) => {
+  const n = Number(v);
+  return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : n;
+};
+
+/** 24h volume and market cap for up to 30 coins per call, from GeckoTerminal. Missing coins aren't indexed yet. */
+export async function tokenStats(mints: string[]): Promise<Map<string, TokenStats>> {
+  const out = new Map<string, TokenStats>();
+  for (let i = 0; i < mints.length; i += 30) {
+    const chunk = mints.slice(i, i + 30);
+    const r = await gt<{ data?: Array<{ attributes?: any }> }>(`/networks/solana/tokens/multi/${chunk.join(",")}`);
+    for (const d of r?.data ?? []) {
+      const a = d.attributes ?? {};
+      if (!a.address) continue;
+      out.set(a.address, {
+        mint: a.address,
+        symbol: a.symbol ?? null,
+        volume24hUsd: num(a.volume_usd?.h24),
+        mcapUsd: num(a.market_cap_usd) ?? num(a.fdv_usd),
+      });
+    }
+  }
+  return out;
+}
+
+let nativeSymbolCache: { at: number; symbol: string } | null = null;
+/** The native coin's ticker (looked up once a day; falls back to NATIVE_COIN_SYMBOL). */
+export async function nativeSymbol(mint: string, fallback: string): Promise<string> {
+  if (nativeSymbolCache && Date.now() - nativeSymbolCache.at < 86_400_000) return nativeSymbolCache.symbol;
+  const s = (await tokenStats([mint]).catch(() => new Map<string, TokenStats>())).get(mint)?.symbol;
+  nativeSymbolCache = { at: Date.now(), symbol: (s || fallback).replace(/^\$/, "").toUpperCase() };
+  return nativeSymbolCache.symbol;
+}

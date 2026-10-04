@@ -10,13 +10,15 @@ import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { applyTier, TIERS } from "../src/domain/tiers.ts";
 import { imageInput } from "../src/domain/images.ts";
+import { decideActivity, postsPerDayFor, priceMove, reelsAllowed, type ActivitySignals } from "../src/domain/activity.ts";
+import { advance, beatLength, isStandalone, normalizeArc, publicArc, storyBrief, type Arc } from "../src/domain/story.ts";
 import { cleanReaction, cleanReply, humanDelayMinutes, replyBudget, replyTargetId, replyViolations, selectForReply, spamReason, isLowEffort, worthPosting, type StoredComment } from "../src/domain/comments.ts";
 import { buyAttempts, friendlyTradeError, isSlippageError } from "../src/domain/tradeErrors.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
 import { chooseFormat, firstPostFormat, nextPostAt } from "../src/domain/schedule.ts";
-import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
+import { decideBuyback, spendable, splitBuyback, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
 import { decrypt, decryptString, encrypt, parseMasterKey } from "../src/lib/crypto.ts";
 import { signRequest, uriEncode } from "../src/lib/sigv4.ts";
 
@@ -74,22 +76,16 @@ describe("sigv4", () => {
 
 const base: BuybackInput = {
   solBalance: 0.5,
-  spentTodaySol: 0,
   minutesSinceLastBuy: null,
-  limits: { gasReserveSol: 0.01, minBuySol: 0.01, maxSolPerBuy: 0.5, maxSolPerDay: 2, intervalMin: 60 },
+  limits: { gasReserveSol: 0.01, minBuySol: 0.01, intervalMin: 60 },
 };
 
 describe("buyback-and-burn policy", () => {
-  it("spends collected fees above the gas reserve", () => {
+  it("spends ALL collected fees above the gas reserve, with no per-buy or daily cap", () => {
     const d = decideBuyback(base);
-    assert.equal(d.action, "buy");
     assert.ok(d.action === "buy" && Math.abs(d.sol - 0.49) < 1e-9);
-  });
-  it("always keeps the gas reserve", () => {
-    for (const bal of [0.011, 0.02, 0.3, 0.51]) {
-      const d = decideBuyback({ ...base, solBalance: bal });
-      if (d.action === "buy") assert.ok(d.sol <= bal - 0.01 + 1e-9);
-    }
+    const big = decideBuyback({ ...base, solBalance: 6.6812 });
+    assert.ok(big.action === "buy" && Math.abs(big.sol - 6.6712) < 1e-9);
     assert.equal(spendable({ ...base, solBalance: 0.005 }), 0);
   });
   it("waits until enough fees have collected", () => {
@@ -97,23 +93,22 @@ describe("buyback-and-burn policy", () => {
     assert.equal(d.action, "skip");
     assert.match(d.reason, /Collecting creator fees/);
   });
-  it("caps each buyback", () => {
-    const d = decideBuyback({ ...base, solBalance: 10 });
-    assert.ok(d.action === "buy" && d.sol <= 0.5);
-  });
-  it("caps daily spending and carries the rest over", () => {
-    const near = decideBuyback({ ...base, solBalance: 10, spentTodaySol: 1.8 });
-    assert.ok(near.action === "buy" && near.sol <= 0.2 + 1e-9);
-    const done = decideBuyback({ ...base, solBalance: 10, spentTodaySol: 2 });
-    assert.equal(done.action, "skip");
-    assert.match(done.reason, /Daily buyback limit/);
-  });
-  it("spaces buybacks out", () => {
+  it("respects the interval between buybacks", () => {
     assert.equal(decideBuyback({ ...base, minutesSinceLastBuy: 30 }).action, "skip");
     assert.equal(decideBuyback({ ...base, minutesSinceLastBuy: 61 }).action, "buy");
   });
   it("never buys with an empty treasury", () => {
     assert.equal(decideBuyback({ ...base, solBalance: 0 }).action, "skip");
+  });
+  it("splits 50/50 with the native coin and stays fair over time", () => {
+    assert.deepEqual(splitBuyback({ total: 6, nativeShare: 0.5, spentOwnSol: 0, spentNativeSol: 0 }), { own: 3, native: 3 });
+    // History skewed toward the coin itself: the native coin catches up.
+    assert.deepEqual(splitBuyback({ total: 2, nativeShare: 0.5, spentOwnSol: 1, spentNativeSol: 0 }), { own: 0.5, native: 1.5 });
+    // Dust folds into the other side.
+    assert.deepEqual(splitBuyback({ total: 0.008, nativeShare: 0.5, spentOwnSol: 0, spentNativeSol: 0 }), { own: 0.008, native: 0 });
+    assert.deepEqual(splitBuyback({ total: 1, nativeShare: 0, spentOwnSol: 0, spentNativeSol: 0 }), { own: 1, native: 0 });
+    const s = splitBuyback({ total: 0.123457, nativeShare: 0.5, spentOwnSol: 0, spentNativeSol: 0 });
+    assert.ok(Math.abs(s.own + s.native - 0.123457) < 1e-9);
   });
 });
 
@@ -189,7 +184,7 @@ describe("persona", () => {
     );
     assert.match(brief, /Moon Cat \(\$MCAT\)/);
     assert.match(brief, /deadpan/i);
-    assert.match(brief, /buy back \$MCAT and burn it/);
+    assert.match(brief, /buying back and burning \$MCAT/);
     assert.match(brief, /space, naps/);
     assert.match(brief, /Spanish/);
     assert.match(CONTENT_RULES, /Never give financial advice/);
@@ -500,5 +495,65 @@ describe("selective replies", () => {
     assert.equal(worthPosting({ action: "reply", interest: 6 }, false), false);
     assert.equal(worthPosting({ action: "reply", interest: 5 }, true), true);
     assert.equal(worthPosting({ action: "skip", interest: 10 }, false), false);
+  });
+});
+
+describe("coin activity tiers", () => {
+  const sig = (p: Partial<ActivitySignals>): ActivitySignals => ({
+    ageHours: 200, volume24hUsd: 0, mcapUsd: 5000, fees24hSol: 0, priceMove24h: 0, hoursSinceActive: 100, ...p,
+  });
+  it("gives new coins a grace period", () => assert.equal(decideActivity(sig({ ageHours: 10 })), "active"));
+  it("keeps traded coins active", () => {
+    assert.equal(decideActivity(sig({ volume24hUsd: 5000 })), "active");
+    assert.equal(decideActivity(sig({ fees24hSol: 0.05 })), "active");
+  });
+  it("cools a coin with a trickle of trading", () => assert.equal(decideActivity(sig({ volume24hUsd: 300, hoursSinceActive: 200 })), "cooling"));
+  it("puts a coin with no trading for 3 days to sleep", () => assert.equal(decideActivity(sig({})), "dormant"));
+  it("doesn't sleep a coin that was active recently", () => assert.equal(decideActivity(sig({ hoursSinceActive: 10 })), "cooling"));
+  it("uses bonding-curve price moves when chart sites don't know the coin", () => {
+    assert.equal(decideActivity(sig({ volume24hUsd: null, priceMove24h: 0.3 })), "active");
+  });
+  it("posting and Reels follow the state", () => {
+    assert.equal(postsPerDayFor("active", 18), 18);
+    assert.equal(postsPerDayFor("cooling", 18), 3);
+    assert.equal(postsPerDayFor("dormant", 18), 0);
+    assert.equal(reelsAllowed("cooling"), false);
+    assert.ok(Math.abs(priceMove([1, 1.2, 0.8]) - 0.5) < 1e-9);
+  });
+});
+
+describe("storylines", () => {
+  const beats = [1, 2, 3, 4].map((i) => ({ title: `E${i}`, summary: `s${i}` }));
+  const arc: Arc = { id: "arc-1", title: "The Great Escape", premise: "p", beats, currentBeat: 0, postsInBeat: 0, status: "active" };
+  it("plays each episode over 2-3 posts, then moves on, then finishes", () => {
+    let a = arc;
+    let posts = 0;
+    while (a.status === "active" && posts < 50) {
+      a = advance(a, { recap: `post ${posts}`, beatComplete: false });
+      posts++;
+    }
+    assert.equal(a.status, "done");
+    assert.ok(posts >= 8 && posts <= 12, String(posts));
+    assert.ok(a.beats.every((b) => b.recap));
+  });
+  it("lets a post close an episode early", () => {
+    const a = advance(arc, { recap: "x", beatComplete: true });
+    assert.equal(a.currentBeat, 1);
+    assert.equal(a.postsInBeat, 0);
+  });
+  it("mixes in standalone moments", () => {
+    assert.equal(isStandalone(3, "schedule"), true);
+    assert.equal(isStandalone(4, "schedule"), false);
+    assert.equal(isStandalone(3, "first"), false);
+    assert.equal(isStandalone(0, "treasury"), true);
+    assert.ok([2, 3].includes(beatLength("arc-1", 0)));
+  });
+  it("rejects thin plans and keeps future episodes secret", () => {
+    assert.equal(normalizeArc({ title: "t", premise: "p", beats: beats.slice(0, 2) }), null);
+    assert.ok(normalizeArc({ title: "t", premise: "p", beats }));
+    const pub = publicArc(advance(arc, { recap: "x", beatComplete: true }));
+    assert.equal(pub.happened.length, 1);
+    assert.match(storyBrief(arc), /OPENS the story/);
+    assert.match(storyBrief({ ...arc, currentBeat: 3, postsInBeat: 2 }), /FINALE/);
   });
 });

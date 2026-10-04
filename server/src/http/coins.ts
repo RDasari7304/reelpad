@@ -12,8 +12,9 @@ import {
   instagramUsernameSchema,
 } from "../domain/schemas.js";
 import { isTimeframe } from "../domain/chart.js";
-import { getChart } from "../services/chart.js";
+import { getChart, nativeSymbol } from "../services/chart.js";
 import { commentStats, commentThreads } from "../services/comments.js";
+import { storyView } from "../services/story.js";
 import { COMMENTS_SCOPE } from "../services/instagram.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
 import { upsertAccessRequest } from "../services/instagramAccess.js";
@@ -164,10 +165,11 @@ coinsRouter.get(
     const coin = await getCoin(String(req.params.id));
     if (!coin || coin.status !== "live") throw new HttpError(404, "Coin not found");
     const agent = new PublicKey(coin.agent_pubkey);
+    const nativeOn = !!config.NATIVE_COIN_MINT && config.NATIVE_COIN_MINT !== coin.mint && config.NATIVE_BUYBACK_SHARE > 0;
     const [solBal, actions, prices, totals] = await Promise.all([
       getSolBalance(agent).catch(() => null),
       query(
-        `SELECT kind, sol_amount, token_amount, tx_sig, status, reason, dry_run, created_at FROM treasury_actions
+        `SELECT kind, sol_amount, token_amount, tx_sig, status, reason, dry_run, created_at, mint FROM treasury_actions
          WHERE coin_id = $1 AND status <> 'skipped' ORDER BY created_at DESC LIMIT 50`,
         [coin.id],
       ),
@@ -175,12 +177,14 @@ coinsRouter.get(
         `SELECT ts, price_sol FROM price_snapshots WHERE coin_id = $1 AND ts > now() - interval '7 days' ORDER BY ts`,
         [coin.id],
       ),
-      one<{ fees: string | null; spent: string | null; burned: string | null; burns: number }>(
+      one<{ fees: string | null; spent: string | null; burned: string | null; burns: number; nspent: string | null; nburned: string | null }>(
         `SELECT
            sum(sol_amount) FILTER (WHERE kind = 'claim_fees' AND status = 'done')::text AS fees,
-           sum(sol_amount) FILTER (WHERE kind = 'buy' AND status = 'done')::text AS spent,
-           sum(token_amount::numeric) FILTER (WHERE kind = 'burn' AND status = 'done')::text AS burned,
-           count(*) FILTER (WHERE kind = 'burn' AND status = 'done')::int AS burns
+           sum(sol_amount) FILTER (WHERE kind = 'buy' AND status = 'done' AND mint IS NULL)::text AS spent,
+           sum(token_amount::numeric) FILTER (WHERE kind = 'burn' AND status = 'done' AND mint IS NULL)::text AS burned,
+           count(*) FILTER (WHERE kind = 'burn' AND status = 'done')::int AS burns,
+           sum(sol_amount) FILTER (WHERE kind = 'buy' AND status = 'done' AND mint IS NOT NULL)::text AS nspent,
+           sum(token_amount::numeric) FILTER (WHERE kind = 'burn' AND status = 'done' AND mint IS NOT NULL)::text AS nburned
          FROM treasury_actions WHERE coin_id = $1`,
         [coin.id],
       ),
@@ -193,12 +197,15 @@ coinsRouter.get(
         boughtBackSol: Number(totals?.spent ?? 0),
         tokensBurned: Number(totals?.burned ?? 0),
         burns: totals?.burns ?? 0,
+        nativeBoughtSol: Number(totals?.nspent ?? 0),
+        nativeBurned: Number(totals?.nburned ?? 0),
       },
+      native: nativeOn
+        ? { mint: config.NATIVE_COIN_MINT, symbol: await nativeSymbol(config.NATIVE_COIN_MINT, config.NATIVE_COIN_SYMBOL), share: config.NATIVE_BUYBACK_SHARE }
+        : null,
       rules: {
         minBuySol: config.TREASURY_MIN_BUY_SOL,
         buyIntervalMin: config.TREASURY_BUY_INTERVAL_MIN,
-        maxSolPerBuy: config.TREASURY_MAX_SOL_PER_ACTION,
-        maxSolPerDay: config.TREASURY_MAX_SOL_PER_DAY,
         gasReserveSol: config.TREASURY_GAS_RESERVE_SOL,
       },
       paused: coin.treasury_paused,
@@ -322,6 +329,17 @@ coinsRouter.put(
       throw new HttpError(400, `This coin launched with @${current.username} as its website, so that's the account it uses.`);
     }
     res.json({ instagramAccess: await upsertAccessRequest(coin.id, username) });
+  }),
+);
+
+/** The character's storyline: the current story (no spoilers) and recently finished ones. */
+coinsRouter.get(
+  "/:key/story",
+  asyncHandler(async (req, res) => {
+    const coin = await getCoinByIdOrMint(String(req.params.key));
+    if (!coin || coin.status !== "live") throw new HttpError(404, "Coin not found");
+    res.set("Cache-Control", "public, max-age=30");
+    res.json(await storyView(coin.id));
   }),
 );
 

@@ -28,7 +28,7 @@ export async function roomCharacters() {
             (SELECT plan->>'mood' FROM posts p WHERE p.coin_id = c.id AND p.plan ? 'mood'
              ORDER BY created_at DESC LIMIT 1) AS mood
      FROM coins c LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
-     WHERE c.status = 'live'
+     WHERE c.status = 'live' AND c.activity_state <> 'dormant'
      ORDER BY c.launched_at DESC LIMIT $1`,
     [MAX_CHARACTERS],
   );
@@ -175,7 +175,7 @@ async function enqueueConversation(tag: string) {
 export async function scheduleRoom() {
   if (!(await recentlyViewed())) return;
   const active = await one<{ n: number }>(`SELECT count(*)::int AS n FROM room_conversations WHERE ends_at > now()`);
-  const chars = await one<{ n: number }>(`SELECT count(*)::int AS n FROM coins WHERE status = 'live'`);
+  const chars = await one<{ n: number }>(`SELECT count(*)::int AS n FROM coins WHERE status = 'live' AND activity_state <> 'dormant'`);
   const maxActive = Math.min(config.ROOM_MAX_CONVERSATIONS, Math.floor((chars?.n ?? 0) / 2));
   if ((active?.n ?? 0) < maxActive) await enqueueConversation("tick");
 }

@@ -93,8 +93,13 @@ const schema = z.object({
   // leftover "true" in the hosting dashboard can't keep a deployment in simulation. For local testing only,
   // TREASURY_SIMULATION=true logs buybacks without sending them.
   TREASURY_DRY_RUN: z.any().transform(() => bool(false).parse(process.env.TREASURY_SIMULATION)),
-  TREASURY_MAX_SOL_PER_ACTION: num(0.5), // most SOL one buyback can spend
-  TREASURY_MAX_SOL_PER_DAY: num(2), // most SOL a coin's buybacks can spend per 24h; extra fees carry over
+  // Every buyback spends all collected fees (no per-buy or daily cap). This share goes to buying back and
+  // burning the platform's native coin; the rest buys back and burns the coin itself.
+  NATIVE_COIN_MINT: z.string().default("2CZJzBoeS17uAQbAdBcrkpEJjPixEcsFvJAhwRV9pump"),
+  NATIVE_BUYBACK_SHARE: num(0.5),
+  NATIVE_COIN_SYMBOL: z.string().default("REELPAD"), // shown until the real ticker is looked up
+  // Optional: a Jupiter API key (portal.jup.ag). Without one the free lite API is used.
+  JUPITER_API_KEY: z.string().optional(),
   TREASURY_MIN_INTERVAL_MIN: num(15), // how often each treasury is checked (fees claimed, price recorded)
   TREASURY_BUY_INTERVAL_MIN: num(60), // minimum minutes between buybacks for one coin
   TREASURY_MIN_BUY_SOL: num(0.01), // wait until this much in fees has collected before buying

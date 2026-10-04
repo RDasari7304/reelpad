@@ -33,6 +33,10 @@ export interface CoinRow {
   treasury_paused: boolean;
   next_post_at: Date | null;
   last_treasury_run_at: Date | null;
+  activity_state: "active" | "cooling" | "dormant";
+  volume_24h_usd: string | null;
+  mcap_usd: string | null;
+  activity_changed_at: Date | null;
   created_at: Date;
   launched_at: Date | null;
 }
@@ -83,6 +87,8 @@ export function publicCoin(c: CoinRow, extra: Record<string, unknown> = {}) {
     symbol: c.symbol,
     description: c.description,
     website: c.website ?? (c.mint ? coinPageUrl(config.PUBLIC_URL, c.mint) : null),
+    activity: c.activity_state ?? "active",
+    activityChangedAt: c.activity_changed_at ?? null,
     twitter: c.twitter,
     telegram: c.telegram,
     imageUrl: c.image_url,

@@ -6,6 +6,7 @@ import { Address, NextPostCountdown, Notice } from "../components";
 import { ContentEditor, PersonaSummary } from "../editors";
 import { CommentsTab } from "../CommentsTab";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { StoryCard } from "../StoryCard";
 import { InstagramConnect } from "../InstagramConnect";
 import { DexScreenerChart } from "../DexScreenerChart";
 import { PriceChart } from "../PriceChart";
@@ -178,7 +179,10 @@ function TreasuryTab({ coin }: { coin: Coin }) {
   return (
     <div className="treasury">
       <p className="treasury-lede">
-        This treasury automatically uses ${coin.symbol}'s creator fees to buy the coin back and burn it.
+        This treasury automatically spends all of ${coin.symbol}'s creator fees on buybacks and burns them
+        {t.native
+          ? `: ${Math.round((1 - t.native.share) * 100)}% buys back $${coin.symbol} and ${Math.round(t.native.share * 100)}% buys back the Reelpad native coin $${t.native.symbol}.`
+          : "."}
         {t.paused && " Buybacks are paused by the site admin right now."}
       </p>
       <dl className="treasury-figures">
@@ -187,9 +191,17 @@ function TreasuryTab({ coin }: { coin: Coin }) {
           <dd>{Math.round(t.totals.tokensBurned).toLocaleString()}</dd>
         </div>
         <div>
-          <dt>SOL spent on buybacks</dt>
+          <dt>SOL spent buying ${coin.symbol}</dt>
           <dd>{t.totals.boughtBackSol.toFixed(4)}</dd>
         </div>
+        {t.native && (
+          <div>
+            <dt>
+              ${t.native.symbol} burned · {(t.totals.nativeBoughtSol ?? 0).toFixed(4)} SOL
+            </dt>
+            <dd>{Math.round(t.totals.nativeBurned ?? 0).toLocaleString()}</dd>
+          </div>
+        )}
         <div>
           <dt>Creator fees collected</dt>
           <dd>{t.totals.feesCollectedSol.toFixed(4)} SOL</dd>
@@ -206,8 +218,9 @@ function TreasuryTab({ coin }: { coin: Coin }) {
         </div>
       </dl>
       <p className="sub-hint">
-        Buys back once at least {t.rules.minBuySol} SOL in fees has collected, at most every {t.rules.buyIntervalMin} minutes,
-        up to {t.rules.maxSolPerBuy} SOL per buyback and {t.rules.maxSolPerDay} SOL a day. Everything bought is burned.
+        Once at least {t.rules.minBuySol} SOL in fees has collected, it buys back with all of it (keeping{" "}
+        {t.rules.gasReserveSol} SOL for network fees), at most every {t.rules.buyIntervalMin} minutes. Everything bought is
+        burned.
       </p>
       {t.dryRun && <Notice tone="warn">Simulation mode: buybacks and burns below are logged but were not sent on-chain.</Notice>}
       <PriceLine prices={t.prices} />
@@ -222,7 +235,8 @@ function TreasuryTab({ coin }: { coin: Coin }) {
               <span className="ledger-kind">
                 {a.kind === "claim_fees" ? "Collected creator fees" : a.kind === "buy" ? "Bought back" : a.kind === "burn" ? "Burned" : a.kind}
                 {a.sol_amount && ` · ${Number(a.sol_amount).toFixed(4)} SOL`}
-                {a.token_amount && ` · ${Math.round(Number(a.token_amount)).toLocaleString()} ${coin.symbol}`}
+                {a.mint && t.native && ` $${t.native.symbol}`}
+                {a.token_amount && ` · ${Math.round(Number(a.token_amount)).toLocaleString()} ${a.mint ? t.native?.symbol ?? "" : coin.symbol}`}
                 {a.status === "simulated" && " · simulated"}
                 {a.status === "failed" && " · failed"}
               </span>
@@ -438,7 +452,18 @@ export default function CoinPage() {
         </dl>
       </header>
 
-      {igActive && coin.status === "live" && (
+      {coin.status === "live" && coin.activity === "dormant" && (
+        <Notice>
+          {coin.name} is resting: nobody has traded ${coin.symbol} for a few days, so posting is paused to save costs. It comes
+          back on its own as soon as trading picks up again.
+        </Notice>
+      )}
+      {coin.status === "live" && coin.activity === "cooling" && owner && (
+        <Notice>
+          Trading in ${coin.symbol} has slowed down, so {coin.name} is posting a few times a day (no Reels) until it picks back up.
+        </Notice>
+      )}
+      {igActive && coin.status === "live" && coin.activity !== "dormant" && (
         <NextPostCountdown
           coin={coin}
           making={making}
@@ -491,6 +516,7 @@ export default function CoinPage() {
         </ErrorBoundary>
       )}
       {shown === "comments" && <CommentsTab coin={coin} owner={owner} onSettings={() => setTab("settings")} />}
+      {shown === "posts" && coin.status === "live" && <StoryCard coin={coin} />}
       {shown === "posts" &&
         (posts.length === 0 ? (
           <p className="empty-line">

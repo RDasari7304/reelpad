@@ -4,6 +4,8 @@ import { one, query } from "../db/pool.js";
 import { captionViolations, finalizeCaption } from "../domain/caption.js";
 import { CONTENT_RULES, personaBrief, personalityText, visualStyleText } from "../domain/persona.js";
 import { cleanSpokenLine, maxSpokenWords, reelVideoPrompt, speakingVoice } from "../domain/reel.js";
+import { postsPerDayFor, reelsAllowed } from "../domain/activity.js";
+import { isStandalone, storyBrief, type Arc } from "../domain/story.js";
 import { chooseFormat, firstPostFormat, nextPostAt, type Format } from "../domain/schedule.js";
 import { captionOpener, pickVariety, type Variety } from "../domain/variety.js";
 import { logger } from "../lib/logger.js";
@@ -15,6 +17,7 @@ import { containerStatus, InstagramError, publish } from "./instagram.js";
 import { rehostImageForInstagram, rehostVideo } from "./media.js";
 import { getKillSwitch } from "./settings.js";
 import { commentMemories } from "./comments.js";
+import { activeArc, ensureArc, recordStoryPost } from "./story.js";
 import { roomMemories } from "./room.js";
 import { reserveSpend } from "./spend.js";
 
@@ -37,6 +40,10 @@ interface PostPlan {
   next_thread: string;
   /** Chosen by pickVariety and stored so later posts can avoid repeating it. */
   variety?: Variety;
+  /** Story posts: one sentence on what happened in the story in this post. */
+  episode_recap?: string;
+  /** Story posts: true if this post wrapped up the current episode. */
+  episode_complete?: boolean;
 }
 
 const PLAN_SCHEMA = {
@@ -74,12 +81,20 @@ const PLAN_SCHEMA = {
       description: "First person, one or two sentences: what you'll remember about this moment and how it made you feel.",
     },
     mood: { type: "string", description: "How you feel right now, in 1 to 4 words." },
+    episode_recap: {
+      type: "string",
+      description: "If this post is part of your storyline: one sentence, past tense, on what happened in the story in this post. Otherwise an empty string.",
+    },
+    episode_complete: {
+      type: "boolean",
+      description: "If this post is part of your storyline: true when it wraps up the current episode. Otherwise false.",
+    },
     next_thread: {
       type: "string",
       description: "Something you're looking forward to, planning, or left unresolved, which a future post could pick up. One sentence.",
     },
   },
-  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt", "spoken_line", "sound", "setting", "memory", "mood", "next_thread"],
+  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt", "spoken_line", "sound", "setting", "memory", "mood", "next_thread", "episode_recap", "episode_complete"],
   additionalProperties: false,
 };
 
@@ -190,8 +205,21 @@ const ALIVE_RULES = `How to feel alive:
 - Sound like a person posting, not a brand: no hashtags or calls to action inside the caption.
 - Emoji: none, or at most one per caption.`;
 
-async function planWithClaude(coin: CoinRow, format: Format, note?: string): Promise<PostPlan> {
+async function planWithClaude(
+  coin: CoinRow,
+  format: Format,
+  note: string | undefined,
+  opts: { story: boolean },
+): Promise<{ plan: PostPlan; arc: Arc | null }> {
   const ctx = await recentContext(coin);
+  // Story posts move the character's current storyline forward (planning a new one when needed);
+  // standalone posts are everyday moments in between that may nod to the story.
+  const arc = opts.story ? await ensureArc(coin, { memories: ctx.memories, life: ctx.life }) : await activeArc(coin.id);
+  const storyText = arc
+    ? opts.story
+      ? storyBrief(arc)
+      : `Your current storyline is "${arc.title}" (${arc.premise}). This post is NOT a story episode: it's an everyday, standalone moment in between. It can nod to what's going on, but don't move the plot forward.`
+    : "";
   const variety = pickVariety(ctx.recentVariety);
   const system = `${personaBrief(coin, coin.persona)}\n\n${ALIVE_RULES}\n\n${CONTENT_RULES}`;
   const inner = [
@@ -208,7 +236,9 @@ async function planWithClaude(coin: CoinRow, format: Format, note?: string): Pro
     `- Camera: ${variety.shot}${format === "carousel" ? " for the first slide; use a different camera angle on every slide" : ""}`,
     `- Lighting and time: ${variety.lighting}`,
     `- Caption style: ${variety.captionStyle}`,
-    `- Setting: somewhere new that fits your world${ctx.recentSettings.length ? `, NOT any of these recent settings:\n${bullets(ctx.recentSettings)}` : ""}`,
+    arc && opts.story
+      ? `- Setting: wherever this moment of the story happens. If it's the same place as a recent post, show it from a new angle or at a different time.`
+      : `- Setting: somewhere new that fits your world${ctx.recentSettings.length ? `, NOT any of these recent settings:\n${bullets(ctx.recentSettings)}` : ""}`,
     ctx.recentOpeners.length ? `Don't open the caption the way your recent captions did:\n${bullets(ctx.recentOpeners.map((o) => `"${o}…"`))}` : "",
     ctx.recentVisuals.length
       ? `Recent images looked like this; change the pose, props, composition and background:\n${bullets(ctx.recentVisuals)}`
@@ -224,6 +254,7 @@ async function planWithClaude(coin: CoinRow, format: Format, note?: string): Pro
       formatInstructions(format),
       note ? `Reason for this post: ${note}` : "",
       inner,
+      storyText,
       brief,
       `Your recent posts (don't repeat these ideas):\n${ctx.recentPosts}`,
       `Recent treasury activity (only mention it if relevant, and only these facts):\n${ctx.treasury}`,
@@ -246,8 +277,10 @@ async function planWithClaude(coin: CoinRow, format: Format, note?: string): Pro
     plan.spoken_line = format === "reel" && reelsHaveAudio() ? cleanSpokenLine(plan.spoken_line ?? "", reelSeconds()) : "";
     plan.sound = format === "reel" ? String(plan.sound ?? "").trim().slice(0, 200) : "";
     plan.variety = variety;
+    plan.episode_recap = arc && opts.story ? String(plan.episode_recap ?? "").trim().slice(0, 300) : "";
+    plan.episode_complete = arc && opts.story ? plan.episode_complete === true : false;
     const violations = captionViolations(plan.caption);
-    if (violations.length === 0 && plan.caption && plan.image_prompts.length) return plan;
+    if (violations.length === 0 && plan.caption && plan.image_prompts.length) return { plan, arc: opts.story ? arc : null };
     feedback = `Your previous caption broke the rules (${violations.join(", ") || "missing image prompts"}). Rewrite it without that.`;
   }
   throw new PermanentError("Could not produce a caption that passes the content rules");
@@ -295,7 +328,10 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
      AND created_at > now() - interval '7 days'`,
     [coinId],
   );
-  const reelsCap = Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK);
+  // Coins whose trading has dried up still post a little, but no Reels (the most expensive format).
+  const reelsCap = reelsAllowed(coin.activity_state ?? "active")
+    ? Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK)
+    : 0;
   // The very first post (queued the moment Instagram connects) leads with a Reel when Reels are on.
   const isFirst = recent.rows.length === 0;
   const format = isFirst
@@ -327,12 +363,18 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
 
   if (!(await reserveSpend(config.COST_LLM_USD))) throw new Error("Daily AI budget reached");
   await setProgress(postId, 8, "Writing the idea and caption");
-  const plan = await planWithClaude(coin, format, note);
+  // Most posts move the storyline on; every few posts (and treasury posts) are standalone moments.
+  const count = await one<{ n: number }>(
+    `SELECT count(*)::int AS n FROM posts WHERE coin_id = $1 AND status NOT IN ('planned','rejected','failed')`,
+    [coinId],
+  );
+  const { plan, arc } = await planWithClaude(coin, format, note, { story: !isStandalone(count?.n ?? 0, trigger) });
   await query(
     `UPDATE posts SET status = 'generating', concept = $2, plan = $3, cost_usd = $4, progress = GREATEST(progress, 20),
             stage = 'Caption written, starting the visuals' WHERE id = $1`,
     [postId, plan.concept, JSON.stringify(plan), config.COST_LLM_USD],
   );
+  if (arc) await recordStoryPost(postId, arc, plan.episode_recap ?? "", plan.episode_complete === true);
   await enqueue("content.generate", { postId }, { dedupeKey: `gen:${postId}`, maxAttempts: 3 });
 }
 
@@ -497,17 +539,21 @@ export async function markPostFailed(postId: string, message: string) {
 
 /** Called every minute: enqueue plans for coins whose next post is due. */
 export async function scheduleDuePosts() {
-  const due = await query<{ id: string; content_settings: { postsPerDay: number } }>(
-    `SELECT c.id, c.content_settings FROM coins c
+  // Dormant coins (no real trading for days) don't post at all; they're revived when trading returns.
+  const due = await query<{ id: string; content_settings: { postsPerDay: number }; activity_state: "active" | "cooling" | "dormant" }>(
+    `SELECT c.id, c.content_settings, c.activity_state FROM coins c
      JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
-     WHERE c.status = 'live' AND NOT c.content_paused AND (c.next_post_at IS NULL OR c.next_post_at <= now())
+     WHERE c.status = 'live' AND NOT c.content_paused AND c.activity_state <> 'dormant'
+       AND (c.next_post_at IS NULL OR c.next_post_at <= now())
      LIMIT 50`,
   );
   for (const c of due.rows) {
-    const perDay = Math.min(
+    const setting = Math.min(
       config.CONTENT_MAX_POSTS_PER_DAY,
       Math.max(config.CONTENT_MIN_POSTS_PER_DAY, c.content_settings.postsPerDay ?? config.CONTENT_MIN_POSTS_PER_DAY),
     );
+    const perDay = postsPerDayFor(c.activity_state ?? "active", setting);
+    if (perDay <= 0) continue;
     await query(`UPDATE coins SET next_post_at = $2 WHERE id = $1`, [c.id, nextPostAt(new Date(), perDay)]);
     await enqueue("content.plan", { coinId: c.id, trigger: "schedule" }, { dedupeKey: `plan:${c.id}`, maxAttempts: 3 });
   }

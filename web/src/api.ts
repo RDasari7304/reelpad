@@ -78,6 +78,8 @@ export interface Coin {
   } | null;
   instagramAccess?: InstagramAccess | null;
   lastImage?: string | null;
+  activity?: "active" | "cooling" | "dormant";
+  activityChangedAt?: string | null;
   postCount?: number;
   isOwner?: boolean;
 }
@@ -121,6 +123,21 @@ export interface FeedPost {
   coin: { id: string; name: string; symbol: string; mint: string | null; imageUrl: string; instagram: string };
 }
 
+export interface StoryArcView {
+  title: string;
+  premise: string;
+  status: "active" | "done";
+  episode: number;
+  episodes: number;
+  happened: Array<{ title: string; recap: string | null }>;
+  startedAt: string;
+  completedAt: string | null;
+}
+export interface StoryResponse {
+  current: StoryArcView | null;
+  past: StoryArcView[];
+}
+
 export interface CommentView {
   id: string;
   username: string;
@@ -144,8 +161,9 @@ export interface CommentsResponse {
 export interface TreasuryView {
   agentWallet: string;
   solBalance: number | null;
-  totals: { feesCollectedSol: number; boughtBackSol: number; tokensBurned: number; burns: number };
-  rules: { minBuySol: number; buyIntervalMin: number; maxSolPerBuy: number; maxSolPerDay: number; gasReserveSol: number };
+  totals: { feesCollectedSol: number; boughtBackSol: number; tokensBurned: number; burns: number; nativeBoughtSol?: number; nativeBurned?: number };
+  rules: { minBuySol: number; buyIntervalMin: number; gasReserveSol: number };
+  native: { mint: string; symbol: string; share: number } | null;
   paused: boolean;
   dryRun: boolean;
   actions: Array<{
@@ -157,6 +175,7 @@ export interface TreasuryView {
     reason: string;
     dry_run: boolean;
     created_at: string;
+    mint?: string | null;
   }>;
   prices: Array<{ t: string; p: number }>;
 }
@@ -167,7 +186,7 @@ export interface AppConfig {
   agentGasSol: number;
   treasuryDryRun: boolean;
   igAccessMode: "testers" | "open";
-  limits: { minPostsPerDay: number; maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
+  limits: { minPostsPerDay: number; maxPostsPerDay: number; maxReelsPerWeek: number; nativeBuybackShare?: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
   reels?: { seconds: number; audio: boolean };
   catalog: {
     personalities: Record<string, string>;

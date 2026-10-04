@@ -265,8 +265,11 @@ export function TreasuryExplainer({ config }: { config: AppConfig }) {
           every trade's creator fee goes to it.
         </li>
         <li>
-          <strong>It buys the coin back.</strong> Once at least {l.treasuryMinBuySol} SOL in fees has collected, the agent
-          spends it buying your coin, at most once every {l.treasuryBuyIntervalMin} minutes.
+          <strong>It buys back.</strong> Once at least {l.treasuryMinBuySol} SOL in fees has collected, the agent spends all of
+          it, at most once every {l.treasuryBuyIntervalMin} minutes
+          {l.nativeBuybackShare
+            ? `: ${Math.round((1 - l.nativeBuybackShare) * 100)}% buys your coin and ${Math.round(l.nativeBuybackShare * 100)}% buys the Reelpad native coin.`
+            : ", buying your coin."}
         </li>
         <li>
           <strong>It burns what it bought.</strong> Every coin the agent buys back is burned straight away, permanently
@@ -274,8 +277,9 @@ export function TreasuryExplainer({ config }: { config: AppConfig }) {
         </li>
       </ol>
       <p className="sub-hint">
-        It runs on its own for as long as the coin trades. Each buyback is capped at {l.treasuryMaxSolPerAction} SOL and{" "}
-        {l.treasuryMaxSolPerDay} SOL a day; extra fees carry over. Nobody can withdraw from the treasury, including you, and
+        It runs on its own for as long as the coin trades, spending all collected fees each time
+        {l.nativeBuybackShare ? ` (${Math.round(l.nativeBuybackShare * 100)}% of them buy back and burn the Reelpad native coin)` : ""}.
+        Nobody can withdraw from the treasury, including you, and
         every buyback and burn is listed publicly on the coin's Treasury tab.
       </p>
     </div>

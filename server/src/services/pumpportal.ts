@@ -39,7 +39,7 @@ export async function buildBuyTx(wallet: PublicKey, mint: PublicKey, solAmount: 
  * If the price moves too much (slippage), it retries with a little more room, then in smaller pieces,
  * and returns how much SOL it actually spent.
  */
-export async function agentBuy(agent: Keypair, mint: PublicKey, solAmount: number, graduated: boolean): Promise<{ sig: string; sol: number }> {
+export async function agentBuyPumpPortal(agent: Keypair, mint: PublicKey, solAmount: number, graduated: boolean): Promise<{ sig: string; sol: number }> {
   const pool = graduated ? "pump-amm" : "pump";
   let lastErr: unknown;
   for (const a of buyAttempts(solAmount, config.PUMPPORTAL_SLIPPAGE)) {

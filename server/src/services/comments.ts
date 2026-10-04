@@ -13,6 +13,7 @@ import {
   selectForReply,
   type StoredComment,
 } from "../domain/comments.js";
+import { repliesAllowed } from "../domain/activity.js";
 import { personaBrief } from "../domain/persona.js";
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
@@ -155,7 +156,7 @@ async function upsertComment(
 export async function scheduleCommentSyncs() {
   const due = await query<{ id: string }>(
     `SELECT c.id FROM coins c JOIN instagram_accounts i ON i.coin_id = c.id
-     WHERE c.status = 'live' AND i.status = 'active' AND $2 = ANY(i.scopes)
+     WHERE c.status = 'live' AND c.activity_state <> 'dormant' AND i.status = 'active' AND $2 = ANY(i.scopes)
        AND (c.last_comment_sync_at IS NULL OR c.last_comment_sync_at < now() - ($1 || ' minutes')::interval)
      ORDER BY c.last_comment_sync_at NULLS FIRST LIMIT 40`,
     [String(config.COMMENT_SYNC_MIN), COMMENTS_SCOPE],
@@ -224,6 +225,7 @@ const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…
 export async function respondToComments(coinId: string) {
   const [kill, coin] = await Promise.all([getKillSwitch(), getCoin(coinId)]);
   if (kill.content || !coin || coin.status !== "live" || coin.content_paused) return;
+  if (!repliesAllowed(coin.activity_state ?? "active")) return; // dormant coins don't spend on replies
   if (coin.content_settings.commentReplies === false) return;
   const acct = await account(coinId);
   if (!commentsEnabled(acct)) return;

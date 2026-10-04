@@ -2805,3 +2805,72 @@ textarea.input {
   .cm-thumb { display: none; }
   .cm-replies { margin-left: 20px; }
 }
+
+/* ── Storyline card ── */
+.story-card {
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  background: var(--print);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--violet);
+  border-radius: 14px;
+  box-shadow: var(--shadow-print);
+}
+.story-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+.story-kicker {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--violet-deep);
+}
+.story-head h3 {
+  margin: 0;
+  font: 700 var(--t-md) / 1.2 var(--display);
+}
+.story-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.story-progress > span {
+  width: 18px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.story-progress > span.done {
+  background: var(--violet);
+}
+.story-progress > span.now {
+  background: var(--violet);
+  opacity: 0.45;
+}
+.story-progress small {
+  margin-left: 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.story-premise {
+  margin: 8px 0 6px;
+  color: var(--ink-soft);
+}
+.story-episodes {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--t-sm);
+}
+.story-past {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
