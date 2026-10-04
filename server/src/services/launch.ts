@@ -9,7 +9,7 @@ import { openKeypair, sealKeypair } from "../lib/secrets.js";
 import { getCoin, type CoinRow } from "./coins.js";
 import { pinImage, pinMetadata } from "./ipfs.js";
 import { normaliseTokenImage } from "./media.js";
-import { coinPageUrl } from "../domain/links.js";
+import { coinWebsite } from "../domain/links.js";
 import { buildLaunchTransaction } from "./pump.js";
 import { connection, sendAndConfirmRaw } from "./solana.js";
 import { mediaKey, putObject } from "./storage.js";
@@ -40,7 +40,7 @@ export async function createDraft(wallet: string, draft: CoinDraft, image: Buffe
       draft.name,
       draft.symbol,
       draft.description,
-      coinPageUrl(config.PUBLIC_URL, mint.publicKey.toBase58()), // locked: the coin's Reelpad page
+      coinWebsite(config.PUBLIC_URL, mint.publicKey.toBase58(), draft.instagramUsername), // the influencer's Instagram
       draft.twitter ?? null,
       draft.telegram ?? null,
       agent.publicKey.toBase58(),
@@ -74,8 +74,10 @@ export async function prepareLaunch(coin: CoinRow, wallet: string) {
   if (!["draft", "awaiting_signature", "failed"].includes(coin.status)) throw new LaunchError(`Coin is already ${coin.status}`);
   if (!coin.mint_secret_enc) throw new LaunchError("Mint key missing");
 
-  // The website is always the coin's own Reelpad page; re-pin if older metadata pointed anywhere else.
-  const website = coinPageUrl(config.PUBLIC_URL, coin.mint!);
+  // The website is the influencer's Instagram profile (or the Reelpad page if no account was given),
+  // fixed at launch. Re-pin if the username changed before launch.
+  const access = await one<{ username: string }>(`SELECT username FROM instagram_access_requests WHERE coin_id = $1`, [coin.id]);
+  const website = coinWebsite(config.PUBLIC_URL, coin.mint!, access?.username);
   const metadataUri =
     (coin.metadata_uri && coin.website === website ? coin.metadata_uri : null) ??
     (await pinMetadata({
@@ -84,6 +86,7 @@ export async function prepareLaunch(coin: CoinRow, wallet: string) {
       description: coin.description,
       image: coin.image_ipfs,
       website,
+      instagram: access?.username ? website : undefined,
       twitter: coin.twitter ?? undefined,
       telegram: coin.telegram ?? undefined,
     }));

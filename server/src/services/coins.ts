@@ -82,7 +82,7 @@ export function publicCoin(c: CoinRow, extra: Record<string, unknown> = {}) {
     name: c.name,
     symbol: c.symbol,
     description: c.description,
-    website: c.mint ? coinPageUrl(config.PUBLIC_URL, c.mint) : null,
+    website: c.website ?? (c.mint ? coinPageUrl(config.PUBLIC_URL, c.mint) : null),
     twitter: c.twitter,
     telegram: c.telegram,
     imageUrl: c.image_url,

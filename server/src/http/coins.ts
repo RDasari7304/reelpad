@@ -309,6 +309,10 @@ coinsRouter.put(
   asyncHandler(async (req, res) => {
     const coin = await ownedCoin(String(req.params.id), req.wallet);
     const { username } = z.object({ username: instagramUsernameSchema }).parse(req.body);
+    const current = await one<{ username: string }>(`SELECT username FROM instagram_access_requests WHERE coin_id = $1`, [coin.id]);
+    if (coin.status === "live" && current && current.username !== username) {
+      throw new HttpError(400, `This coin launched with @${current.username} as its website, so that's the account it uses.`);
+    }
     res.json({ instagramAccess: await upsertAccessRequest(coin.id, username) });
   }),
 );

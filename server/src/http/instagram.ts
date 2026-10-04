@@ -56,6 +56,12 @@ instagramRouter.get(
         return fail("This Instagram account must be a Professional (Creator or Business) account");
       }
 
+      // The token's website links to the account it launched with, so only that account can be connected.
+      const expected = await one<{ username: string }>(`SELECT username FROM instagram_access_requests WHERE coin_id = $1`, [coin.id]);
+      if (expected && coin.status === "live" && me.username.toLowerCase() !== expected.username.toLowerCase()) {
+        return fail(`This coin launched with @${expected.username} as its website. Log in to Instagram as @${expected.username} to connect it.`);
+      }
+
       const taken = await one(
         `SELECT coin_id FROM instagram_accounts WHERE ig_user_id = $1 AND status = 'active' AND coin_id <> $2`,
         [me.igUserId, coin.id],

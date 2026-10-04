@@ -7,7 +7,7 @@ import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
-import { coinPageUrl } from "../src/domain/links.ts";
+import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
@@ -362,5 +362,12 @@ describe("the Room", () => {
       assert.notDeepEqual([...p].sort(), ["a", "b"]);
     }
     assert.equal(pickPair(["a", "b"], new Map(), new Set(["a"]), now), null);
+  });
+});
+
+describe("token website", () => {
+  it("points to the Instagram profile when there is one", () => {
+    assert.equal(coinWebsite("https://reelpad.fun", "Mint1", "the_daytraderr"), "https://www.instagram.com/the_daytraderr/");
+    assert.equal(coinWebsite("https://reelpad.fun", "Mint1", null), "https://reelpad.fun/coin/Mint1");
   });
 });

@@ -115,8 +115,9 @@ export default function Launch() {
   if (!config) return <div className="page narrow" aria-busy="true" />;
 
   const busy = stage !== "idle" && stage !== "done";
-  const igValid = !igUsername.trim() || normalizeInstagramUsername(igUsername) !== null;
-  const canSubmit = name.trim() && symbol.trim() && (file || coin) && accepted && igValid && !busy;
+  const igNorm = normalizeInstagramUsername(igUsername);
+  const igValid = !igUsername.trim() || igNorm !== null;
+  const canSubmit = name.trim() && symbol.trim() && (file || coin) && accepted && igNorm !== null && !busy;
 
   async function launch() {
     setError(null);
@@ -141,7 +142,7 @@ export default function Launch() {
             description,
             twitter: twitter || undefined,
             telegram: telegram || undefined,
-            instagramUsername: igUsername.trim() || undefined,
+            instagramUsername: igNorm ?? igUsername.trim(),
             persona,
             contentSettings: content,
           }),
@@ -213,8 +214,8 @@ export default function Launch() {
           <details className="more">
             <summary>Links</summary>
             <div className="grid-3">
-              <Field label="Website" hint="Locked. Your coin's website is its own page on Reelpad.">
-                <input className="input" value={coin?.mint ? `${window.location.origin}/coin/${coin.mint}` : `${window.location.origin}/coin/…`} readOnly disabled />
+              <Field label="Website" hint="Set automatically: the coin's Instagram account, entered in step 3.">
+                <input className="input" value={igNorm ? `instagram.com/${igNorm}` : "instagram.com/…"} readOnly disabled />
               </Field>
               <Field label="X">
                 <input className="input" type="url" placeholder="https://x.com/…" value={twitter} onChange={(e) => setTwitter(e.target.value)} disabled={!!coin} />
@@ -239,12 +240,12 @@ export default function Launch() {
           </h2>
           <div className="grid-2">
             <Field
-              label="Instagram account"
+              label="Instagram account (required)"
               error={igValid ? undefined : "Use letters, numbers, periods and underscores (max 30)."}
               hint={
                 config.igAccessMode === "testers"
-                  ? "Optional. If you've already made the coin's Instagram (a Creator or Business account), enter it now so we can start giving it access. You can also add it after launch."
-                  : "Optional. You'll log in with this account right after launch. It must be a Creator or Business account."
+                  ? "The coin's Instagram (a Creator or Business account). It becomes the token's website on pump.fun and can't be changed after launch, so make the account first."
+                  : "The coin's Instagram (a Creator or Business account). It becomes the token's website on pump.fun and can't be changed after launch. You'll log in with it right after launch."
               }
             >
               <input
@@ -318,6 +319,9 @@ export default function Launch() {
           </label>
           {error && <Notice tone="error">{error}</Notice>}
           {busy && <Notice>{STAGE_TEXT[stage]}</Notice>}
+          {publicKey && !coin && igNorm === null && (
+            <p className="sub-hint">Enter the coin's Instagram username in step 3 to launch. It becomes the token's website.</p>
+          )}
           <button className="btn btn-primary btn-big" onClick={launch} disabled={publicKey ? !canSubmit : false}>
             {!publicKey ? "Connect wallet to launch" : coin ? "Try launching again" : "Launch coin"}
           </button>
