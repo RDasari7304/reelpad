@@ -10,7 +10,7 @@ import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { applyTier, TIERS } from "../src/domain/tiers.ts";
 import { imageInput } from "../src/domain/images.ts";
-import { cleanReaction, cleanReply, humanDelayMinutes, replyBudget, replyTargetId, replyViolations, selectForReply, spamReason, type StoredComment } from "../src/domain/comments.ts";
+import { cleanReaction, cleanReply, humanDelayMinutes, replyBudget, replyTargetId, replyViolations, selectForReply, spamReason, isLowEffort, worthPosting, type StoredComment } from "../src/domain/comments.ts";
 import { buyAttempts, friendlyTradeError, isSlippageError } from "../src/domain/tradeErrors.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
@@ -420,7 +420,7 @@ describe("buyback errors", () => {
 describe("comment replies", () => {
   const now = new Date("2026-10-04T12:00:00Z");
   const mk = (p: Partial<StoredComment> & { id: string }): StoredComment => ({
-    parentId: null, mediaId: "m1", username: "fan", text: "love this", timestamp: new Date(now.getTime() - 60 * 60_000),
+    parentId: null, mediaId: "m1", username: "fan", text: "this one made my day honestly", timestamp: new Date(now.getTime() - 60 * 60_000),
     likeCount: 0, isOwn: false, status: "new", ...p,
   });
 
@@ -455,7 +455,7 @@ describe("comment replies", () => {
   it("answers top-level comments and talk-backs, not fan-to-fan chatter", () => {
     const all = [
       mk({ id: "c1", text: "what do you trade?" }),
-      mk({ id: "c2", username: "b", text: "nice", likeCount: 10 }),
+      mk({ id: "c2", username: "b", text: "how long have you been trading?", likeCount: 10 }),
       mk({ id: "r1", parentId: "c2", username: "c", text: "agreed" }), // fan to fan, influencer not in thread
       mk({ id: "c3", username: "d", text: "hi" }),
       mk({ id: "o1", parentId: "c3", username: "me", isOwn: true, status: "own", text: "hey d", timestamp: new Date(now.getTime() - 50 * 60_000) }),
@@ -485,5 +485,20 @@ describe("comment replies", () => {
     assert.equal(replyTargetId({ id: "c", parentId: null }), "c");
     const d = humanDelayMinutes("17890000000000001");
     assert.ok(d >= 2 && d <= 12);
+  });
+});
+
+describe("selective replies", () => {
+  it("skips low-effort comments for free", () => {
+    for (const t of ["🔥🔥🔥", "lfg", "gm", "nice", "first!", "LOVE THIS 😍", "w"]) assert.ok(isLowEffort(t), t);
+    for (const t of ["is the goldfish ok?", "what happens if the simulation patches you out", "your last reel made me laugh so hard"]) {
+      assert.ok(!isLowEffort(t), t);
+    }
+  });
+  it("only posts interesting ones", () => {
+    assert.equal(worthPosting({ action: "reply", interest: 8 }, false), true);
+    assert.equal(worthPosting({ action: "reply", interest: 6 }, false), false);
+    assert.equal(worthPosting({ action: "reply", interest: 5 }, true), true);
+    assert.equal(worthPosting({ action: "skip", interest: 10 }, false), false);
   });
 });

@@ -155,7 +155,7 @@ export function CommentsTab({ coin, owner, onSettings }: { coin: Coin; owner: bo
       {data && data.threads.length === 0 && (
         <p className="empty-line">
           No comments yet. When people comment on {coin.name}'s posts, the conversations show up here
-          {enabled && repliesOn ? `, along with ${coin.name}'s replies` : ""}.
+          {enabled && repliesOn ? `. ${coin.name} answers the ones it finds interesting` : ""}.
         </p>
       )}
       <div className="cm-list">

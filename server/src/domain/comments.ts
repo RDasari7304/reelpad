@@ -10,6 +10,44 @@ export const REPLY_MAX_CHARS = 300;
 export const MAX_COMMENT_AGE_HOURS = 72;
 export const MAX_REPLIES_PER_USER_PER_DAY = 3;
 export const MAX_OWN_REPLIES_PER_THREAD_USER = 3;
+/** The influencer is selective: it only answers comments it finds interesting (scored 0–10 by Claude). */
+export const INTEREST_THRESHOLD = 7;
+/** Someone talking back to the influencer in a thread gets a little more benefit of the doubt. */
+export const TALKBACK_THRESHOLD = 5;
+/** At most this many emoji-only reactions per round, so it doesn't heart everything. */
+export const MAX_REACTS_PER_ROUND = 1;
+
+const LOW_EFFORT = new Set([
+  "nice", "cool", "lfg", "gm", "gn", "first", "lol", "lmao", "wow", "fire", "based", "bullish", "send it", "wagmi",
+  "love it", "love this", "so cute", "cute", "great", "amazing", "awesome", "yes", "yess", "w", "huge", "ok", "omg",
+  "let's go", "lets go", "to the moon", "moon", "pump it", "hi", "hello", "hey", "gm fam", "nice one", "great post",
+]);
+
+/**
+ * Comments with nothing to answer: emoji-only, one or two generic words, "gm", "lfg", "first".
+ * These are skipped for free (no AI call) unless the person is talking back to the influencer.
+ */
+export function isLowEffort(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, " ")
+    .replace(/@[\w.]+/g, " ")
+    .replace(/[^\p{L}\p{N}' ]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return true; // emoji or punctuation only
+  if (LOW_EFFORT.has(t)) return true;
+  const words = t.split(" ");
+  return words.length <= 2 && words.every((w) => w.length <= 4 && !/\d/.test(w)) && !/\?/.test(text);
+}
+
+/** Whether a Claude decision clears the bar to actually post. */
+export function worthPosting(d: { action: string; interest: number }, talkback: boolean): boolean {
+  if (d.action === "skip") return false;
+  const bar = talkback ? TALKBACK_THRESHOLD : INTEREST_THRESHOLD;
+  return Number.isFinite(d.interest) && d.interest >= bar;
+}
+
 export const REACTIONS = ["❤️", "🔥", "😂", "🙏", "👀", "🫡", "💜", "😭", "🤝", "✨"];
 
 export interface StoredComment {
@@ -144,6 +182,10 @@ export function selectForReply(
     }
     if (!c.text.trim()) {
       skip.push({ comment: c, reason: "empty" });
+      continue;
+    }
+    if (!c.parentId && isLowEffort(c.text)) {
+      skip.push({ comment: c, reason: "not interesting enough to answer" });
       continue;
     }
     let conversational = false;

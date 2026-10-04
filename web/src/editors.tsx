@@ -227,8 +227,9 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
         <span>
           <strong>Reply to comments</strong>
           <small>
-            The character reads comments on its posts and answers in its own voice: real answers to questions, jokes back,
-            a quick emoji for simple hype. Spam, scams and trolls are skipped.
+            The character reads every comment but only answers the ones it finds interesting: real questions, funny or
+            creative comments, people picking up on its story, and anyone talking back to it. Generic hype, spam and
+            trolls are skipped.
           </small>
         </span>
       </label>

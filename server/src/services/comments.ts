@@ -4,8 +4,10 @@ import { one, query } from "../db/pool.js";
 import {
   cleanReaction,
   cleanReply,
+  MAX_REACTS_PER_ROUND,
   REACTIONS,
   replyBudget,
+  worthPosting,
   replyTargetId,
   replyViolations,
   selectForReply,
@@ -172,6 +174,11 @@ const REPLY_SCHEMA = {
         type: "object",
         properties: {
           comment_id: { type: "string", description: "The id of the comment you're answering, exactly as given." },
+          interest: {
+            type: "integer",
+            description:
+              "How interesting this comment is to you, 0-10. 8-10: a real question, something genuinely funny or creative, a callback to your lore or story, thoughtful criticism. 4-6: nice but generic. 0-3: low effort, hype, spam.",
+          },
           action: { type: "string", enum: ["reply", "react", "skip"] },
           text: {
             type: "string",
@@ -179,7 +186,7 @@ const REPLY_SCHEMA = {
           },
           reason: { type: "string", description: "A few words on why (e.g. 'answered their question', 'spam', 'troll')." },
         },
-        required: ["comment_id", "action", "text", "reason"],
+        required: ["comment_id", "interest", "action", "text", "reason"],
         additionalProperties: false,
       },
     },
@@ -189,6 +196,8 @@ const REPLY_SCHEMA = {
 };
 
 const REPLY_RULES = `How you answer comments on your own Instagram posts:
+- Be selective, like a real creator: you do NOT answer everything. Most comments get "skip". Only answer comments you find genuinely interesting: a real question, something funny or creative you want to play off, someone picking up on your story or lore, thoughtful criticism, or someone continuing a conversation with you. Generic praise, hype, "gm", "lfg", emoji strings and "first" are usually skipped. Expect to answer roughly one comment in three or four.
+- Score every comment's "interest" honestly (0-10) before deciding; only reply when it's 7 or more (5 or more if they're replying to something you said).
 - Read each comment in its context: the post it's on, the thread so far, and what you and this person have said before. Answer what they actually said, not a generic version of it.
 - Questions get a real answer in character, using only what you know (your backstory, your posts, the facts given). Jokes get a joke back. Compliments get warmth with personality, not "thank you so much". Criticism gets a graceful, in-character answer, never an argument. A troll gets at most one light, witty line, or skip.
 - Sound like a real person replying from their phone: usually 3 to 20 words, never more than 2 short sentences. Vary how you start; don't open with "Haha", "Thanks", "Love this" or their name every time, and never reuse one of your recent replies.
@@ -203,6 +212,7 @@ const REPLY_RULES = `How you answer comments on your own Instagram posts:
 
 interface Decision {
   comment_id: string;
+  interest: number;
   action: "reply" | "react" | "skip";
   text: string;
   reason: string;
@@ -252,7 +262,8 @@ export async function respondToComments(coinId: string) {
     [coinId],
   );
   const selection = selectForReply(all, new Date(), {
-    batch: Math.min(config.COMMENT_BATCH, budget),
+    // Most comments considered won't be answered, so look at a full batch even when few replies are left today.
+    batch: config.COMMENT_BATCH,
     repliedTodayByUser: new Map(perUser.rows.map((r) => [r.u, r.n])),
   });
   for (const s of selection.skip) {
@@ -275,6 +286,7 @@ export async function respondToComments(coinId: string) {
   );
 
   let posted = 0;
+  let reacts = 0;
   for (const c of selection.reply) {
     const d = decisions.get(c.id);
     if (!d) {
@@ -283,10 +295,13 @@ export async function respondToComments(coinId: string) {
       if ((r?.attempts ?? 0) >= 3) await finish(c.id, "skipped", "skip", null, null, "no reply decided");
       continue;
     }
-    if (d.action === "skip") {
-      await finish(c.id, "skipped", "skip", null, null, short(d.reason || "nothing to add", 200));
+    const talkback = !!c.parentId;
+    if (!worthPosting(d, talkback) || (d.action === "react" && reacts >= MAX_REACTS_PER_ROUND)) {
+      const why = d.action === "skip" ? d.reason || "nothing to add" : `not interesting enough (${d.interest}/10)`;
+      await finish(c.id, "skipped", "skip", null, null, short(`${why} · interest ${d.interest}/10`, 200));
       continue;
     }
+    if (d.action === "react") reacts++;
     const mention = !!c.parentId;
     const text =
       d.action === "react"
@@ -314,7 +329,7 @@ export async function respondToComments(coinId: string) {
       const replyId = await replyToComment(target, text, ig.token);
       posted++;
       recentOwn.add(text.toLowerCase());
-      await finish(c.id, "replied", d.action, replyId, text, short(d.reason || "", 200));
+      await finish(c.id, "replied", d.action, replyId, text, short(`${d.reason || "answered"} · interest ${d.interest}/10`, 200));
       await query(
         `INSERT INTO ig_comments(id, coin_id, post_id, media_id, parent_id, username, text, commented_at, is_own, status)
          SELECT $1, coin_id, post_id, media_id, $2, $3, $4, now(), true, 'own' FROM ig_comments WHERE id = $5
@@ -428,7 +443,9 @@ async function decide(coin: CoinRow, ownUsername: string, batch: StoredComment[]
   const valid = new Set(batch.map((c) => c.id));
   const map = new Map<string, Decision>();
   for (const d of out.replies ?? []) {
-    if (valid.has(String(d.comment_id)) && ["reply", "react", "skip"].includes(d.action)) map.set(String(d.comment_id), d);
+    if (valid.has(String(d.comment_id)) && ["reply", "react", "skip"].includes(d.action)) {
+      map.set(String(d.comment_id), { ...d, interest: Math.max(0, Math.min(10, Math.round(Number(d.interest) || 0))) });
+    }
   }
   return map;
 }
