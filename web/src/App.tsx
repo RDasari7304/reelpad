@@ -1,4 +1,4 @@
-import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
+import { ConnectionProvider, useWallet, WalletProvider } from "@solana/wallet-adapter-react";
 import { WalletModalProvider, WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { clusterApiUrl } from "@solana/web3.js";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
@@ -13,7 +13,10 @@ import { DataDeletion, Privacy, Terms } from "./pages/Legal";
 const RPC = import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta");
 
 function Header() {
-  const { wallet, isAdmin, config } = useSession();
+  const { wallet, isAdmin, config, signIn, signingIn } = useSession();
+  const { publicKey } = useWallet();
+  // Connected in Phantom but not signed in to the site yet: offer sign-in so My coins / Admin appear.
+  const needsSignIn = !!publicKey && wallet !== publicKey.toBase58();
   return (
     <header className="site-header">
       <Link to="/" className="wordmark" aria-label="Home">
@@ -30,6 +33,16 @@ function Header() {
           Launch a coin
         </NavLink>
       </nav>
+      {needsSignIn && (
+        <button
+          type="button"
+          className="btn btn-small btn-primary"
+          disabled={signingIn}
+          onClick={() => signIn().catch((e) => alert(e instanceof Error ? e.message : String(e)))}
+        >
+          {signingIn ? "Check your wallet…" : "Sign in"}
+        </button>
+      )}
       <WalletMultiButton />
     </header>
   );
