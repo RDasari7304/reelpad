@@ -16,8 +16,8 @@ export const defaultPersona = (): Persona => ({
 
 export const defaultContent = (): ContentSettings => ({
   formats: ["image", "carousel"],
-  postsPerDay: 1,
-  reelsPerWeek: 1,
+  postsPerDay: 3,
+  reelsPerWeek: 3,
   autoPublish: true,
   hashtags: [],
   postAboutBurns: true,
@@ -134,7 +134,7 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
         ))}
       </div>
       <div className="grid-2">
-        <Field label="Posts per day">
+        <Field label="Posts per day" hint="The first post (a Reel, if Reels are on) starts as soon as Instagram is connected.">
           <select className="input" value={value.postsPerDay} onChange={(e) => set("postsPerDay", Number(e.target.value))}>
             {Array.from({ length: config.limits.maxPostsPerDay }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>

@@ -5,10 +5,20 @@ export type Format = "image" | "carousel" | "reel";
 
 /** Next post time: evenly spaced through the day with ±20% jitter so posts don't look robotic. */
 export function nextPostAt(from: Date, postsPerDay: number, rand: () => number = Math.random): Date {
-  const per = Math.max(1, Math.min(postsPerDay, 6));
+  const per = Math.max(1, Math.min(postsPerDay, 24));
   const intervalMs = (24 * 60 * 60 * 1000) / per;
   const jitter = (rand() * 0.4 - 0.2) * intervalMs;
   return new Date(from.getTime() + intervalMs + jitter);
+}
+
+/**
+ * Format for a coin's very first post: a Reel when Reels are turned on (the strongest introduction),
+ * otherwise an image post, otherwise whatever is allowed.
+ */
+export function firstPostFormat(allowed: Format[], reelsPerWeek: number): Format {
+  if (allowed.includes("reel") && reelsPerWeek > 0) return "reel";
+  if (allowed.includes("image")) return "image";
+  return allowed[0] ?? "image";
 }
 
 const WEIGHTS: Record<Format, number> = { image: 5, carousel: 3, reel: 3 };

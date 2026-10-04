@@ -5,7 +5,7 @@ import { captionViolations, finalizeCaption } from "../src/domain/caption.ts";
 import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
-import { chooseFormat, nextPostAt } from "../src/domain/schedule.ts";
+import { chooseFormat, firstPostFormat, nextPostAt } from "../src/domain/schedule.ts";
 import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
 import { decrypt, decryptString, encrypt, parseMasterKey } from "../src/lib/crypto.ts";
 import { signRequest, uriEncode } from "../src/lib/sigv4.ts";
@@ -192,5 +192,21 @@ describe("persona", () => {
   it("defaults the visual style", () => {
     assert.match(visualStyleText({}), /3D render/);
     assert.equal(visualStyleText({ visualStyle: "custom", visualStyleCustom: "ukiyo-e woodblock" }), "ukiyo-e woodblock");
+  });
+});
+
+describe("first post", () => {
+  it("leads with a Reel when Reels are on", () => {
+    assert.equal(firstPostFormat(["image", "carousel", "reel"], 3), "reel");
+  });
+  it("falls back to an image post when Reels are off or capped at zero", () => {
+    assert.equal(firstPostFormat(["image", "carousel"], 3), "image");
+    assert.equal(firstPostFormat(["image", "reel"], 0), "image");
+    assert.equal(firstPostFormat(["carousel"], 0), "carousel");
+  });
+  it("supports up to 24 posts a day", () => {
+    const from = new Date("2026-01-01T00:00:00Z");
+    assert.equal(nextPostAt(from, 12, () => 0.5).getTime() - from.getTime(), 2 * 3600_000);
+    assert.equal(nextPostAt(from, 100, () => 0.5).getTime() - from.getTime(), 3600_000);
   });
 });

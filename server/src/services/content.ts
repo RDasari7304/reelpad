@@ -3,7 +3,7 @@ import { enqueue, PermanentError } from "../db/jobs.js";
 import { one, query } from "../db/pool.js";
 import { captionViolations, finalizeCaption } from "../domain/caption.js";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../domain/persona.js";
-import { chooseFormat, nextPostAt, type Format } from "../domain/schedule.js";
+import { chooseFormat, firstPostFormat, nextPostAt, type Format } from "../domain/schedule.js";
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
 import { generateImage, generateVideo } from "./ai/fal.js";
@@ -124,12 +124,19 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
     [coinId],
   );
   const reelsCap = Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK);
-  const format = chooseFormat({
-    allowed: coin.content_settings.formats,
-    reelsThisWeek: Number(reels?.n ?? 0),
-    reelsPerWeek: reelsCap,
-    recent: recent.rows.map((r) => r.format),
-  });
+  // The very first post (queued the moment Instagram connects) leads with a Reel when Reels are on.
+  const isFirst = recent.rows.length === 0;
+  const format = isFirst
+    ? firstPostFormat(coin.content_settings.formats, reelsCap)
+    : chooseFormat({
+        allowed: coin.content_settings.formats,
+        reelsThisWeek: Number(reels?.n ?? 0),
+        reelsPerWeek: reelsCap,
+        recent: recent.rows.map((r) => r.format),
+      });
+  if (isFirst && !note) {
+    note = "This is your very first post. Introduce yourself to Instagram in character: who you are and what your world is like.";
+  }
 
   if (!(await reserveSpend(config.COST_LLM_USD))) throw new Error("Daily AI budget reached");
   const plan = await planWithClaude(coin, format, note);

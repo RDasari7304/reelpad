@@ -27,8 +27,8 @@ export const personaSchema = z
 
 export const contentSettingsSchema = z.object({
   formats: z.array(z.enum(["image", "carousel", "reel"])).min(1).default(["image", "carousel"]),
-  postsPerDay: z.number().int().min(1).max(3).default(1),
-  reelsPerWeek: z.number().int().min(0).max(7).default(1),
+  postsPerDay: z.number().int().min(1).max(24).default(3),
+  reelsPerWeek: z.number().int().min(0).max(49).default(3),
   autoPublish: z.boolean().default(true),
   hashtags: z.array(z.string().regex(/^[\p{L}\p{N}_]{1,40}$/u, "Hashtags: letters, numbers, underscores")).max(8).default([]),
   // Post (at most once a day) when the treasury buys back and burns the coin.
