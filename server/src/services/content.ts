@@ -5,6 +5,7 @@ import { captionViolations, finalizeCaption } from "../domain/caption.js";
 import { CONTENT_RULES, personaBrief, personalityText, visualStyleText } from "../domain/persona.js";
 import { cleanSpokenLine, maxSpokenWords, reelVideoPrompt, speakingVoice } from "../domain/reel.js";
 import { postsPerDayFor, reelsAllowed } from "../domain/activity.js";
+import { supportsMultiReference } from "../domain/images.js";
 import { isStandalone, storyBrief, type Arc } from "../domain/story.js";
 import { chooseFormat, firstPostFormat, nextPostAt, type Format } from "../domain/schedule.js";
 import { captionOpener, pickVariety, type Variety } from "../domain/variety.js";
@@ -17,6 +18,9 @@ import { containerStatus, InstagramError, publish } from "./instagram.js";
 import { rehostImageForInstagram, rehostVideo } from "./media.js";
 import { getKillSwitch } from "./settings.js";
 import { commentMemories } from "./comments.js";
+import { markMilestonePosted, takePendingMilestone } from "./milestones.js";
+import { fanChoice } from "./polls.js";
+import { collabBrief, markCollab, pickCollabPartner, type CollabPartner } from "./collabs.js";
 import { activeArc, ensureArc, recordStoryPost } from "./story.js";
 import { roomMemories } from "./room.js";
 import { reserveSpend } from "./spend.js";
@@ -40,6 +44,8 @@ interface PostPlan {
   next_thread: string;
   /** Chosen by pickVariety and stored so later posts can avoid repeating it. */
   variety?: Variety;
+  /** Collab posts: the friend featured and invited as an Instagram collaborator. */
+  collab?: { coinId: string; name: string; symbol: string; instagram: string | null; imageUrl: string };
   /** Story posts: one sentence on what happened in the story in this post. */
   episode_recap?: string;
   /** Story posts: true if this post wrapped up the current episode. */
@@ -209,15 +215,16 @@ async function planWithClaude(
   coin: CoinRow,
   format: Format,
   note: string | undefined,
-  opts: { story: boolean },
+  opts: { story: boolean; collab?: CollabPartner | null },
 ): Promise<{ plan: PostPlan; arc: Arc | null }> {
   const ctx = await recentContext(coin);
   // Story posts move the character's current storyline forward (planning a new one when needed);
   // standalone posts are everyday moments in between that may nod to the story.
   const arc = opts.story ? await ensureArc(coin, { memories: ctx.memories, life: ctx.life }) : await activeArc(coin.id);
+  const choice = arc && opts.story ? await fanChoice(arc.id, arc.currentBeat).catch(() => null) : null;
   const storyText = arc
     ? opts.story
-      ? storyBrief(arc)
+      ? `${storyBrief(arc)}${choice ? `\nYour followers voted on how this episode goes, and they chose: "${choice}". Make the episode go that way, and you can thank them for picking it.` : ""}`
       : `Your current storyline is "${arc.title}" (${arc.premise}). This post is NOT a story episode: it's an everyday, standalone moment in between. It can nod to what's going on, but don't move the plot forward.`
     : "";
   const variety = pickVariety(ctx.recentVariety);
@@ -255,6 +262,7 @@ async function planWithClaude(
       note ? `Reason for this post: ${note}` : "",
       inner,
       storyText,
+      opts.collab ? collabBrief(opts.collab) : "",
       brief,
       `Your recent posts (don't repeat these ideas):\n${ctx.recentPosts}`,
       `Recent treasury activity (only mention it if relevant, and only these facts):\n${ctx.treasury}`,
@@ -280,6 +288,17 @@ async function planWithClaude(
     plan.episode_recap = arc && opts.story ? String(plan.episode_recap ?? "").trim().slice(0, 300) : "";
     plan.episode_complete = arc && opts.story ? plan.episode_complete === true : false;
     const violations = captionViolations(plan.caption);
+    if (opts.collab) {
+      plan.collab = {
+        coinId: opts.collab.coinId,
+        name: opts.collab.name,
+        symbol: opts.collab.symbol,
+        instagram: opts.collab.instagram,
+        imageUrl: opts.collab.imageUrl,
+      };
+      // Make sure the friend is tagged even if the caption forgot.
+      if (!plan.caption.toLowerCase().includes(`@${opts.collab.instagram.toLowerCase()}`)) plan.caption += ` (with @${opts.collab.instagram})`;
+    }
     if (violations.length === 0 && plan.caption && plan.image_prompts.length) return { plan, arc: opts.story ? arc : null };
     feedback = `Your previous caption broke the rules (${violations.join(", ") || "missing image prompts"}). Rewrite it without that.`;
   }
@@ -363,18 +382,32 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
 
   if (!(await reserveSpend(config.COST_LLM_USD))) throw new Error("Daily AI budget reached");
   await setProgress(postId, 8, "Writing the idea and caption");
+  // A milestone (graduation, all-time high, market cap level, record burn) waiting for its post takes this one.
+  let milestone: { kind: string; key: string; note: string } | null = null;
+  if (!note && (trigger === "schedule" || trigger === "milestone")) {
+    milestone = await takePendingMilestone(coinId);
+    if (milestone) {
+      note = milestone.note;
+      trigger = "milestone";
+    }
+  }
   // Most posts move the storyline on; every few posts (and treasury posts) are standalone moments.
   const count = await one<{ n: number }>(
     `SELECT count(*)::int AS n FROM posts WHERE coin_id = $1 AND status NOT IN ('planned','rejected','failed')`,
     [coinId],
   );
-  const { plan, arc } = await planWithClaude(coin, format, note, { story: !isStandalone(count?.n ?? 0, trigger) });
+  // Now and then a scheduled post becomes a collab with a friend from the Room.
+  const collab = !note && trigger === "schedule" ? await pickCollabPartner(coin).catch(() => null) : null;
+  if (collab) trigger = "collab";
+  const { plan, arc } = await planWithClaude(coin, format, note, { story: !isStandalone(count?.n ?? 0, trigger), collab });
   await query(
     `UPDATE posts SET status = 'generating', concept = $2, plan = $3, cost_usd = $4, progress = GREATEST(progress, 20),
             stage = 'Caption written, starting the visuals' WHERE id = $1`,
     [postId, plan.concept, JSON.stringify(plan), config.COST_LLM_USD],
   );
-  if (arc) await recordStoryPost(postId, arc, plan.episode_recap ?? "", plan.episode_complete === true);
+  if (arc) await recordStoryPost(coin, postId, arc, plan.episode_recap ?? "", plan.episode_complete === true);
+  if (milestone) await markMilestonePosted(coinId, milestone.kind, milestone.key);
+  if (collab) await markCollab(postId, collab.coinId);
   await enqueue("content.generate", { postId }, { dedupeKey: `gen:${postId}`, maxAttempts: 3 });
 }
 
@@ -382,8 +415,9 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
  * Draws an image, then (premium tier) has Claude compare it with the token image. If the character
  * doesn't match or the image is broken, it's redrawn once with Claude's note.
  */
-async function drawChecked(postId: string, prompt: string, ref: string, aspect: "1:1" | "9:16", stage: string) {
-  const first = await generateImage(prompt, ref, aspect);
+async function drawChecked(postId: string, prompt: string, refs: string[], aspect: "1:1" | "9:16", stage: string) {
+  const ref = refs[0]!;
+  const first = await generateImage(prompt, refs, aspect);
   if (!config.QUALITY_CHECK || !(await reserveSpend(config.COST_CHECK_USD))) return first;
   await query(`UPDATE posts SET stage = $2 WHERE id = $1`, [postId, stage]);
   const review = await reviewImage(first, ref, prompt);
@@ -391,7 +425,7 @@ async function drawChecked(postId: string, prompt: string, ref: string, aspect: 
   if (review.pass || !(await reserveSpend(config.COST_IMAGE_USD))) return first;
   logger.info({ postId, fix: review.fix }, "image failed the quality check; redrawing");
   await query(`UPDATE posts SET stage = 'Redrawing to match the character', cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_IMAGE_USD]);
-  return generateImage(`${prompt} Important: ${review.fix || "match the reference character exactly."}`, ref, aspect);
+  return generateImage(`${prompt} Important: ${review.fix || "match the reference character exactly."}`, refs, aspect);
 }
 
 /** Job: generate media for a planned post and store it permanently. */
@@ -405,6 +439,8 @@ export async function generatePost(postId: string) {
   if (!coin) return;
 
   const style = visualStyleText(coin.persona);
+  // Collab posts draw both characters: this coin's image first, the friend's second.
+  const refs = [coin.image_url, ...(post.plan.collab?.imageUrl && supportsMultiReference(config.FAL_IMAGE_MODEL) ? [post.plan.collab.imageUrl] : [])];
   const prompts = post.plan.image_prompts.slice(0, post.format === "carousel" ? 5 : 1);
   if (post.format === "carousel" && prompts.length < 2) throw new PermanentError("Carousel plan has fewer than 2 images");
   const cost = prompts.length * config.COST_IMAGE_USD + (post.format === "reel" ? config.COST_REEL_USD : 0);
@@ -427,7 +463,7 @@ export async function generatePost(postId: string) {
   const media: Array<{ type: "image" | "video"; url: string; key: string; role?: string }> = [];
   if (post.format === "reel") {
     await setProgress(postId, 22, "Drawing the opening frame");
-    const keyframe = await drawChecked(postId, fullPrompt(prompts[0]!), coin.image_url, "9:16", "Checking the opening frame");
+    const keyframe = await drawChecked(postId, fullPrompt(prompts[0]!), refs, "9:16", "Checking the opening frame");
     const cover = await rehostImageForInstagram(keyframe, coin.id, "9:16");
     const audio = reelsHaveAudio();
     const stage = audio && post.plan.spoken_line ? "Filming the Reel: voice, lip sync and sound" : audio ? "Filming the Reel with sound" : "Animating the Reel";
@@ -452,7 +488,7 @@ export async function generatePost(postId: string) {
     for (const [i, p] of prompts.entries()) {
       const label = prompts.length > 1 ? `Drawing image ${i + 1} of ${prompts.length}` : "Drawing the image";
       await setProgress(postId, 22 + (i / prompts.length) * 63, label);
-      const remote = await drawChecked(postId, fullPrompt(p, i), coin.image_url, "1:1", `${label}: quality check`);
+      const remote = await drawChecked(postId, fullPrompt(p, i), refs, "1:1", `${label}: quality check`);
       media.push({ type: "image", ...(await rehostImageForInstagram(remote, coin.id, "1:1")) });
     }
   }
@@ -484,7 +520,8 @@ export async function publishPost(postId: string) {
     media: any[];
     status: string;
     ig_container_id: string | null;
-  }>(`SELECT id, coin_id, format, caption, media, status, ig_container_id FROM posts WHERE id = $1`, [postId]);
+    plan: PostPlan | null;
+  }>(`SELECT id, coin_id, format, caption, media, status, ig_container_id, plan FROM posts WHERE id = $1`, [postId]);
   if (!post || !["ready", "publishing"].includes(post.status)) return;
   const ig = await getInstagram(post.coin_id);
   if (!ig || ig.status !== "active") throw new PermanentError("Instagram account is not connected");
@@ -506,7 +543,15 @@ export async function publishPost(postId: string) {
 
   try {
     const result = await publish(
-      { igUserId: ig.igUserId, token: ig.token, format: post.format, caption: post.caption, mediaUrls },
+      {
+        igUserId: ig.igUserId,
+        token: ig.token,
+        format: post.format,
+        caption: post.caption,
+        mediaUrls,
+        // Collab posts invite the partner's account, so the post can appear on both profiles.
+        collaborators: post.plan?.collab?.instagram ? [post.plan.collab.instagram] : [],
+      },
       (containerId) =>
         query(
           `UPDATE posts SET ig_container_id = $2, progress = GREATEST(progress, 95), stage = $3 WHERE id = $1`,

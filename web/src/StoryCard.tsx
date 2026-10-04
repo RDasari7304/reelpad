@@ -1,5 +1,60 @@
 import { useEffect, useState } from "react";
-import { api, type Coin, type StoryResponse } from "./api";
+import { api, type Coin, type StoryPoll, type StoryResponse } from "./api";
+import { useSession } from "./session";
+
+/** Holders vote on how the next episode goes. Results show live; one vote per wallet, changeable until it closes. */
+function PollBox({ coin, poll, onVoted }: { coin: Coin; poll: StoryPoll; onVoted: (r: StoryResponse) => void }) {
+  const { wallet, signIn, signingIn } = useSession();
+  const [busy, setBusy] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const cast = async (option: number) => {
+    setErr(null);
+    setBusy(option);
+    try {
+      if (!wallet) await signIn();
+      onVoted(await api<StoryResponse>(`/coins/${coin.id}/polls/${poll.id}/vote`, { method: "POST", json: { option } }));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const voted = poll.myVote !== null;
+  return (
+    <div className="poll">
+      <p className="poll-q">
+        <span className="poll-tag">Fans decide episode {poll.episode}</span>
+        {poll.question}
+      </p>
+      <ul className="poll-options">
+        {poll.options.map((o, i) => {
+          const pct = poll.total ? Math.round((o.votes / poll.total) * 100) : 0;
+          return (
+            <li key={i}>
+              <button
+                type="button"
+                className={poll.myVote === i ? "poll-opt mine" : "poll-opt"}
+                onClick={() => cast(i)}
+                disabled={busy !== null || signingIn}
+                aria-pressed={poll.myVote === i}
+              >
+                <span className="poll-bar" style={{ width: `${voted ? pct : 0}%` }} aria-hidden />
+                <span className="poll-text">{o.text}</span>
+                {voted && <span className="poll-pct">{pct}%</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="poll-foot">
+        {poll.total} vote{poll.total === 1 ? "" : "s"} · ${coin.symbol} holders only, one vote per wallet ·{" "}
+        {voted ? "you can change your vote until this episode ends" : "closes when this episode ends"}
+        {!wallet && " · connect your wallet to vote"}
+      </p>
+      {err && <p className="field-error">{err}</p>}
+    </div>
+  );
+}
 
 /** The character's current storyline, shown above its posts: title, premise and the episodes so far. */
 export function StoryCard({ coin }: { coin: Coin }) {
@@ -72,6 +127,7 @@ export function StoryCard({ coin }: { coin: Coin }) {
           )}
         </>
       )}
+      {cur && story?.poll && <PollBox coin={coin} poll={story.poll} onVoted={setStory} />}
       {cur && story && story.past.length > 0 && (
         <p className="story-past">Previously: {story.past.map((p) => `"${p.title}"`).join(", ")}</p>
       )}

@@ -111,6 +111,7 @@ export interface Post {
   stage: string | null;
   created_at: string;
   published_at: string | null;
+  collab?: { id: string; name: string; symbol: string; mint: string | null } | null;
 }
 
 export interface FeedPost {
@@ -121,6 +122,7 @@ export interface FeedPost {
   permalink: string | null;
   publishedAt: string;
   coin: { id: string; name: string; symbol: string; mint: string | null; imageUrl: string; instagram: string };
+  collab?: { id: string; name: string; symbol: string; mint: string | null } | null;
 }
 
 export interface StoryArcView {
@@ -138,6 +140,15 @@ export interface StoryResponse {
   past: StoryArcView[];
   /** Before the first storyline: the character's latest moments, from its posts. */
   lately?: Array<{ title: string; recap: string | null; at: string }>;
+  poll?: StoryPoll | null;
+}
+export interface StoryPoll {
+  id: string;
+  question: string;
+  episode: number;
+  options: Array<{ text: string; votes: number }>;
+  total: number;
+  myVote: number | null;
 }
 
 export interface CommentView {

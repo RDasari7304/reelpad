@@ -9,6 +9,7 @@ import { logger } from "../lib/logger.js";
 import { openKeypair } from "../lib/secrets.js";
 import { getCoin, type CoinRow } from "./coins.js";
 import { nativeSymbol } from "./chart.js";
+import { checkBurnMilestone, checkPriceMilestones } from "./milestones.js";
 import { agentCollectCreatorFees } from "./pumpportal.js";
 import { buyToken } from "./trade.js";
 import { getKillSwitch } from "./settings.js";
@@ -131,6 +132,10 @@ export async function runTreasury(coinId: string) {
   const mint = new PublicKey(coin.mint);
   const price = await getPriceSol(mint);
   if (price) {
+    // Compared with the previous readings before this one is stored: graduation and new all-time highs.
+    await checkPriceMilestones(coinId, price.priceSol, price.graduated, coin.launched_at).catch((e) =>
+      logger.warn({ coinId, err: (e as Error).message }, "price milestone check failed"),
+    );
     await query(`INSERT INTO price_snapshots(coin_id, price_sol, graduated) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [
       coinId,
       price.priceSol,
@@ -216,15 +221,18 @@ export async function runTreasury(coinId: string) {
   let nativeSol = 0;
   if (split.own > 0) {
     try {
-      const bought = await buyToken(agent, mint, split.own, price?.graduated ?? false);
-      ownSol = bought.sol;
-      await record(coinId, {
-        kind: "buy",
-        status: "done",
-        sol: bought.sol,
-        sig: bought.sig,
-        reason: `${decision.reason}${native ? ` ${Math.round((1 - config.NATIVE_BUYBACK_SHARE) * 100)}% goes to $${coin.symbol}.` : ""}`,
-      });
+      const fills = await buyToken(agent, mint, split.own, price?.graduated ?? false);
+      for (const f of fills) {
+        ownSol += f.sol;
+        await record(coinId, {
+          kind: "buy",
+          status: "done",
+          sol: f.sol,
+          sig: f.sig,
+          reason: `${decision.reason}${native ? ` ${Math.round((1 - config.NATIVE_BUYBACK_SHARE) * 100)}% goes to $${coin.symbol}.` : ""}${fills.length > 1 ? ` (bought in ${fills.length} pieces)` : ""}`,
+        });
+      }
+      ownSol = Math.round(ownSol * 1e6) / 1e6;
       ownBurned = await burnAll(coin, "Burned the coins just bought back with creator fees.", true);
     } catch (e) {
       const raw = (e as Error).message;
@@ -236,16 +244,19 @@ export async function runTreasury(coinId: string) {
     try {
       const nativeMint = new PublicKey(native);
       const np = await getPriceSol(nativeMint);
-      const bought = await buyToken(agent, nativeMint, split.native, np?.graduated ?? true);
-      nativeSol = bought.sol;
-      await record(coinId, {
-        kind: "buy",
-        status: "done",
-        sol: bought.sol,
-        sig: bought.sig,
-        mint: native,
-        reason: `${Math.round(config.NATIVE_BUYBACK_SHARE * 100)}% of creator fees buy back the Reelpad native coin $${nativeSym}.`,
-      });
+      const fills = await buyToken(agent, nativeMint, split.native, np?.graduated ?? true);
+      for (const f of fills) {
+        nativeSol += f.sol;
+        await record(coinId, {
+          kind: "buy",
+          status: "done",
+          sol: f.sol,
+          sig: f.sig,
+          mint: native,
+          reason: `${Math.round(config.NATIVE_BUYBACK_SHARE * 100)}% of creator fees buy back the Reelpad native coin $${nativeSym}.${fills.length > 1 ? ` (bought in ${fills.length} pieces)` : ""}`,
+        });
+      }
+      nativeSol = Math.round(nativeSol * 1e6) / 1e6;
       nativeBurned = await burnAll(coin, `Burned the $${nativeSym} just bought back.`, true, native);
     } catch (e) {
       const raw = (e as Error).message;
@@ -254,6 +265,7 @@ export async function runTreasury(coinId: string) {
     }
   }
 
+  if (ownBurned) await checkBurnMilestone(coinId, ownBurned, coin.symbol).catch(() => {});
   if (ownBurned) {
     await maybePostAboutBurn(
       coin,

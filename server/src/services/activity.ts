@@ -3,6 +3,7 @@ import { query } from "../db/pool.js";
 import { decideActivity, meetsActiveBar, priceMove, type Activity } from "../domain/activity.js";
 import { logger } from "../lib/logger.js";
 import { tokenStats, type TokenStats } from "./chart.js";
+import { checkMcapMilestone } from "./milestones.js";
 
 /**
  * Hourly activity check for every live coin (see domain/activity.ts). Uses GeckoTerminal for 24h
@@ -70,6 +71,9 @@ export async function runActivityChecks() {
               activity_changed_at = CASE WHEN activity_state <> $2 THEN now() ELSE activity_changed_at END
        WHERE id = $1`,
       [c.id, next, signals.volume24hUsd, signals.mcapUsd, activeNow],
+    );
+    await checkMcapMilestone(c.id, signals.mcapUsd).catch((e) =>
+      logger.warn({ coinId: c.id, err: (e as Error).message }, "mcap milestone check failed"),
     );
     if (next !== c.activity_state) {
       logger.info({ coin: c.symbol, from: c.activity_state, to: next, ...signals }, "coin activity changed");

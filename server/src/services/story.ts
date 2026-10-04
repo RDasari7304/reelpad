@@ -5,6 +5,7 @@ import { advance, MAX_BEATS, MIN_BEATS, normalizeArc, publicArc, type Arc } from
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
 import type { CoinRow } from "./coins.js";
+import { closePoll, openPoll, openPollView } from "./polls.js";
 import { reserveSpend } from "./spend.js";
 
 /** Loads, plans and advances each influencer's storyline (see domain/story.ts). */
@@ -109,7 +110,10 @@ export async function ensureArc(coin: CoinRow, context: { memories: string[]; li
       [coin.id, arc.title, arc.premise, JSON.stringify(arc.beats)],
     );
     logger.info({ coin: coin.symbol, title: arc.title }, "new storyline");
-    return r ? toArc(r) : activeArc(coin.id);
+    const created = r ? toArc(r) : await activeArc(coin.id);
+    // Episode 1 starts now; followers vote on how episode 2 goes.
+    if (created) await openPoll(coin, created, 1).catch(() => {});
+    return created;
   } catch (e) {
     logger.warn({ coin: coin.symbol, err: (e as Error).message }, "storyline planning failed; posting standalone");
     return null;
@@ -117,7 +121,7 @@ export async function ensureArc(coin: CoinRow, context: { memories: string[]; li
 }
 
 /** After a story post is planned: tie the post to its episode and move the story on (once per post). */
-export async function recordStoryPost(postId: string, arc: Arc, recap: string, beatComplete: boolean) {
+export async function recordStoryPost(coin: CoinRow, postId: string, arc: Arc, recap: string, beatComplete: boolean) {
   const claimed = await one(`UPDATE posts SET arc_id = $2, beat = $3 WHERE id = $1 AND arc_id IS NULL RETURNING id`, [
     postId,
     arc.id,
@@ -132,10 +136,15 @@ export async function recordStoryPost(postId: string, arc: Arc, recap: string, b
     [arc.id, JSON.stringify(next.beats), next.currentBeat, next.postsInBeat, next.status],
   );
   if (next.status === "done") logger.info({ arc: arc.title }, "storyline finished");
+  // A new episode just started: the poll that decided it closes, and fans vote on the one after it.
+  if (next.status === "active" && next.currentBeat !== arc.currentBeat) {
+    await closePoll(arc.id, next.currentBeat).catch(() => {});
+    await openPoll(coin, next, next.currentBeat + 1).catch(() => {});
+  }
 }
 
 /** The coin page's storyline card: the current story and the last finished ones, without spoilers. */
-export async function storyView(coinId: string) {
+export async function storyView(coinId: string, wallet?: string) {
   const rows = await query(
     `SELECT * FROM story_arcs WHERE coin_id = $1 AND status IN ('active','done') ORDER BY created_at DESC LIMIT 4`,
     [coinId],
@@ -161,5 +170,6 @@ export async function storyView(coinId: string) {
         at: p.published_at,
       }));
   }
-  return { current, past, lately };
+  const poll = current ? await openPollView(coinId, wallet) : null;
+  return { current, past, lately, poll };
 }

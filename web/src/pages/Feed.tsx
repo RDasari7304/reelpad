@@ -91,6 +91,11 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
       </div>
       <div className="feed-body">
         {post.caption && <Caption text={post.caption} />}
+        {post.collab && (
+          <Link className="collab-badge" to={`/coin/${post.collab.mint ?? post.collab.id}`}>
+            Collab with {post.collab.name} ${post.collab.symbol}
+          </Link>
+        )}
         <div className="feed-links">
           {post.permalink && (
             <a href={post.permalink} target="_blank" rel="noreferrer">

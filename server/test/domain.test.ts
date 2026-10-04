@@ -9,11 +9,13 @@ import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { applyTier, TIERS } from "../src/domain/tiers.ts";
-import { imageInput } from "../src/domain/images.ts";
+import { imageInput, supportsMultiReference } from "../src/domain/images.ts";
+import { athMilestone, graduationMilestone, mcapMilestone, recordBurnMilestone } from "../src/domain/milestones.ts";
+import { pollWinner } from "../src/domain/polls.ts";
 import { decideActivity, postsPerDayFor, priceMove, reelsAllowed, type ActivitySignals } from "../src/domain/activity.ts";
 import { advance, beatLength, isStandalone, normalizeArc, publicArc, storyBrief, type Arc } from "../src/domain/story.ts";
 import { cleanReaction, cleanReply, humanDelayMinutes, replyBudget, replyTargetId, replyViolations, selectForReply, spamReason, isLowEffort, worthPosting, type StoredComment } from "../src/domain/comments.ts";
-import { buyAttempts, friendlyTradeError, isSlippageError } from "../src/domain/tradeErrors.ts";
+import { buyAttempts, chunkAmounts, friendlyTradeError, isSlippageError } from "../src/domain/tradeErrors.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
@@ -555,5 +557,67 @@ describe("storylines", () => {
     assert.equal(pub.happened.length, 1);
     assert.match(storyBrief(arc), /OPENS the story/);
     assert.match(storyBrief({ ...arc, currentBeat: 3, postsInBeat: 2 }), /FINALE/);
+  });
+});
+
+describe("large buybacks", () => {
+  it("go out in even pieces of at most 1 SOL", () => {
+    const p = chunkAmounts(3.5856, 1);
+    assert.equal(p.length, 4);
+    assert.ok(p.every((x) => x <= 1));
+    assert.ok(Math.abs(p.reduce((a, b) => a + b, 0) - 3.5856) < 1e-6);
+    assert.deepEqual(chunkAmounts(0.4, 1), [0.4]);
+    assert.deepEqual(chunkAmounts(0, 1), []);
+  });
+  it("recognise Jupiter's slippage error", () => {
+    assert.ok(isSlippageError('Transaction failed: {"InstructionError":[6,{"Custom":6001}]}'));
+    assert.match(friendlyTradeError('Transaction failed: {"InstructionError":[6,{"Custom":6001}]}'), /no SOL was spent/);
+  });
+});
+
+describe("milestones", () => {
+  it("graduation fires once, on the switch", () => {
+    assert.ok(graduationMilestone(false, true));
+    assert.equal(graduationMilestone(true, true), null);
+    assert.equal(graduationMilestone(false, false), null);
+  });
+  it("market cap celebrates only the highest new level", () => {
+    const m = mcapMilestone(320_000, new Set(["50000"]));
+    assert.equal(m?.key, "250000");
+    assert.match(m!.note, /\$250K/);
+    assert.equal(mcapMilestone(320_000, new Set(["50000", "100000", "250000"])), null);
+    assert.equal(mcapMilestone(null, new Set()), null);
+  });
+  it("all-time highs need a real jump on a coin older than 6 hours, once a day", () => {
+    const now = new Date("2026-10-04T12:00:00Z");
+    assert.equal(athMilestone({ priceSol: 1.3, prevHighSol: 1, ageHours: 24, now })?.key, "2026-10-04");
+    assert.equal(athMilestone({ priceSol: 1.1, prevHighSol: 1, ageHours: 24, now }), null);
+    assert.equal(athMilestone({ priceSol: 3, prevHighSol: 1, ageHours: 2, now }), null);
+  });
+  it("record burns start from the third burn", () => {
+    assert.ok(recordBurnMilestone(2_000_000, 1_000_000, 2, "AIDEN"));
+    assert.equal(recordBurnMilestone(2_000_000, 1_000_000, 1, "AIDEN"), null);
+    assert.equal(recordBurnMilestone(1_050_000, 1_000_000, 5, "AIDEN"), null);
+  });
+  it("milestone notes forbid price talk", () => {
+    assert.match(graduationMilestone(false, true)!.note, /Never predict the price/);
+  });
+});
+
+describe("story polls", () => {
+  it("most votes wins, ties go to the first option, no votes no winner", () => {
+    assert.equal(pollWinner(3, [{ option: 1, n: 4 }, { option: 2, n: 2 }]), 1);
+    assert.equal(pollWinner(3, [{ option: 0, n: 2 }, { option: 2, n: 2 }]), 0);
+    assert.equal(pollWinner(3, []), null);
+  });
+});
+
+describe("collab images", () => {
+  it("send both characters to multi-reference models only", () => {
+    const nb = imageInput("fal-ai/nano-banana-pro/edit", "p", ["me", "friend"], "1:1");
+    assert.deepEqual(nb.image_urls, ["me", "friend"]);
+    assert.match(String(nb.prompt), /second is their friend/);
+    assert.equal(supportsMultiReference("fal-ai/flux-pro/kontext"), false);
+    assert.equal(imageInput("fal-ai/flux-pro/kontext", "p", ["me", "friend"], "1:1").image_url, "me");
   });
 });

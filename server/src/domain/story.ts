@@ -41,7 +41,7 @@ export const beatLength = (arcId: string, beat: number) => 2 + (hash(`${arcId}:$
 /** Whether this post should be a standalone moment rather than a story post. */
 export function isStandalone(postNumber: number, trigger: string): boolean {
   if (trigger === "first" || trigger === "comeback") return false; // these open or reopen the story
-  if (trigger === "treasury") return true; // burn posts stand on their own (they may nod to the story)
+  if (trigger === "treasury" || trigger === "milestone" || trigger === "collab") return true; // event posts stand on their own (they may nod to the story)
   return postNumber % STANDALONE_EVERY === STANDALONE_EVERY - 1;
 }
 

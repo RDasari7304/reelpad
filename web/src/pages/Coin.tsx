@@ -101,6 +101,11 @@ function PostTile({ post, owner, onChange }: { post: Post; owner: boolean; onCha
       </div>
       <div className="post-body">
         {owner && <span className={`status status-${post.status}`}>{STATUS_LABEL[post.status] ?? post.status}</span>}
+        {post.collab && (
+          <Link className="collab-badge" to={`/coin/${post.collab.mint ?? post.collab.id}`}>
+            Collab with {post.collab.name} ${post.collab.symbol}
+          </Link>
+        )}
         {editing ? (
           <textarea className="input" rows={6} maxLength={2200} value={caption} onChange={(e) => setCaption(e.target.value)} />
         ) : (

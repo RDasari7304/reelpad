@@ -177,14 +177,40 @@ export interface PublishInput {
   format: "image" | "carousel" | "reel";
   caption: string;
   mediaUrls: string[]; // images for image/carousel; [videoUrl, coverImageUrl?] for reel
+  /** Instagram usernames to invite as collaborators (up to 3); the post then shows on their profile too once they accept. */
+  collaborators?: string[];
+}
+
+/**
+ * Creates the post's main container with Instagram's AI-disclosure label and any collab partners.
+ * If Instagram rejects one of those extras (e.g. a collaborator it can't invite), the post still goes
+ * out: first without collaborators, then without the label.
+ */
+async function createTop(igUserId: string, token: string, params: Record<string, string>, collaborators: string[]) {
+  const attempts: Array<Record<string, string>> = [
+    { ...params, is_ai_generated: "true", ...(collaborators.length ? { collaborators: JSON.stringify(collaborators.slice(0, 3)) } : {}) },
+    ...(collaborators.length ? [{ ...params, is_ai_generated: "true" }] : []),
+    params,
+  ];
+  let last: unknown;
+  for (const a of attempts) {
+    try {
+      return await createContainer(igUserId, token, a);
+    } catch (e) {
+      last = e;
+      if (!(e instanceof InstagramError) || e.isAuth || e.isRateLimit) throw e;
+    }
+  }
+  throw last;
 }
 
 export async function publish(input: PublishInput, onContainer?: (id: string) => Promise<void>) {
   const { igUserId, token, caption } = input;
+  const collabs = input.collaborators ?? [];
   let containerId: string;
 
   if (input.format === "image") {
-    containerId = await createContainer(igUserId, token, { image_url: input.mediaUrls[0]!, caption });
+    containerId = await createTop(igUserId, token, { image_url: input.mediaUrls[0]!, caption }, collabs);
   } else if (input.format === "carousel") {
     const urls = input.mediaUrls.slice(0, 10);
     if (urls.length < 2) throw new PermanentError("A carousel needs at least 2 images");
@@ -193,7 +219,7 @@ export async function publish(input: PublishInput, onContainer?: (id: string) =>
       children.push(await createContainer(igUserId, token, { image_url: url, is_carousel_item: "true" }));
     }
     for (const c of children) await waitForContainer(c, token, 2 * 60_000);
-    containerId = await createContainer(igUserId, token, { media_type: "CAROUSEL", children: children.join(","), caption });
+    containerId = await createTop(igUserId, token, { media_type: "CAROUSEL", children: children.join(","), caption }, collabs);
   } else {
     const params: Record<string, string> = {
       media_type: "REELS",
@@ -202,7 +228,7 @@ export async function publish(input: PublishInput, onContainer?: (id: string) =>
       share_to_feed: "true",
     };
     if (input.mediaUrls[1]) params.cover_url = input.mediaUrls[1];
-    containerId = await createContainer(igUserId, token, params);
+    containerId = await createTop(igUserId, token, params, collabs);
   }
 
   await onContainer?.(containerId);

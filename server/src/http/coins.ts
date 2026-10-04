@@ -14,6 +14,7 @@ import {
 import { isTimeframe } from "../domain/chart.js";
 import { getChart, nativeSymbol } from "../services/chart.js";
 import { commentStats, commentThreads } from "../services/comments.js";
+import { vote, VoteError } from "../services/polls.js";
 import { storyView } from "../services/story.js";
 import { COMMENTS_SCOPE } from "../services/instagram.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
@@ -150,9 +151,12 @@ coinsRouter.get(
     if (!coin) throw new HttpError(404, "Coin not found");
     const isOwner = coin.creator_wallet === req.wallet;
     const rows = await query(
-      `SELECT id, format, status, trigger, concept, caption, media, permalink, error, progress, stage, created_at, published_at
-       FROM posts WHERE coin_id = $1 ${isOwner ? "" : "AND status = 'published'"}
-       ORDER BY created_at DESC LIMIT 60`,
+      `SELECT p.id, p.format, p.status, p.trigger, p.concept, p.caption, p.media, p.permalink, p.error, p.progress, p.stage,
+              p.created_at, p.published_at,
+              CASE WHEN o.id IS NULL THEN NULL ELSE json_build_object('name', o.name, 'symbol', o.symbol, 'mint', o.mint, 'id', o.id) END AS collab
+       FROM posts p LEFT JOIN coins o ON o.id = p.collab_coin_id
+       WHERE p.coin_id = $1 ${isOwner ? "" : "AND p.status = 'published'"}
+       ORDER BY p.created_at DESC LIMIT 60`,
       [coin.id],
     );
     res.json({ posts: rows.rows });
@@ -338,8 +342,26 @@ coinsRouter.get(
   asyncHandler(async (req, res) => {
     const coin = await getCoinByIdOrMint(String(req.params.key));
     if (!coin || coin.status !== "live") throw new HttpError(404, "Coin not found");
-    res.set("Cache-Control", "public, max-age=30");
-    res.json(await storyView(coin.id));
+    res.set("Cache-Control", "no-store");
+    res.json(await storyView(coin.id, req.wallet));
+  }),
+);
+
+/** A holder votes on how the next episode of the storyline goes. */
+coinsRouter.post(
+  "/:id/polls/:pollId/vote",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const coin = await getCoin(String(req.params.id));
+    if (!coin || coin.status !== "live" || !coin.mint) throw new HttpError(404, "Coin not found");
+    const { option } = z.object({ option: z.number().int().min(0).max(9) }).parse(req.body);
+    try {
+      await vote(coin, String(req.params.pollId), req.wallet!, option);
+    } catch (e) {
+      if (e instanceof VoteError) throw new HttpError(400, e.message);
+      throw e;
+    }
+    res.json(await storyView(coin.id, req.wallet));
   }),
 );
 
@@ -417,8 +439,10 @@ postsRouter.get(
     const valid = (d: Date | null) => (d && !isNaN(d.getTime()) ? d : null);
     const rows = await query<any>(
       `SELECT p.id, p.format, p.caption, p.media, p.permalink, p.published_at,
-              c.id AS coin_id, c.name, c.symbol, c.mint, c.image_url, i.username AS ig_username
+              c.id AS coin_id, c.name, c.symbol, c.mint, c.image_url, i.username AS ig_username,
+              o.name AS collab_name, o.symbol AS collab_symbol, o.mint AS collab_mint, o.id AS collab_id
        FROM posts p
+       LEFT JOIN coins o ON o.id = p.collab_coin_id
        JOIN coins c ON c.id = p.coin_id AND c.status = 'live'
        JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
        WHERE p.status = 'published' AND p.published_at IS NOT NULL
@@ -437,6 +461,7 @@ postsRouter.get(
         permalink: r.permalink,
         publishedAt: r.published_at,
         coin: { id: r.coin_id, name: r.name, symbol: r.symbol, mint: r.mint, imageUrl: r.image_url, instagram: r.ig_username },
+        collab: r.collab_id ? { id: r.collab_id, name: r.collab_name, symbol: r.collab_symbol, mint: r.collab_mint } : null,
       })),
     });
   }),

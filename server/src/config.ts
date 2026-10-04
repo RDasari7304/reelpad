@@ -97,6 +97,7 @@ const schema = z.object({
   // burning the platform's native coin; the rest buys back and burns the coin itself.
   NATIVE_COIN_MINT: z.string().default("2CZJzBoeS17uAQbAdBcrkpEJjPixEcsFvJAhwRV9pump"),
   NATIVE_BUYBACK_SHARE: num(0.5),
+  TRADE_CHUNK_SOL: num(1), // large buybacks go out in pieces of at most this much SOL
   NATIVE_COIN_SYMBOL: z.string().default("REELPAD"), // shown until the real ticker is looked up
   // Optional: a Jupiter API key (portal.jup.ag). Without one the free lite API is used.
   JUPITER_API_KEY: z.string().optional(),

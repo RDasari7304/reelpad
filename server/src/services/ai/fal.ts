@@ -48,7 +48,7 @@ async function run<T>(
  * Generates an image in the coin's character, using the token image as a visual reference
  * (keeps the influencer recognisable from post to post).
  */
-export async function generateImage(prompt: string, referenceImageUrl: string, aspectRatio: "1:1" | "9:16" = "1:1") {
+export async function generateImage(prompt: string, referenceImageUrl: string | string[], aspectRatio: "1:1" | "9:16" = "1:1") {
   const model = config.FAL_IMAGE_MODEL;
   const out = await run<{ images?: Array<{ url: string }>; has_nsfw_concepts?: boolean[] }>(
     model,
