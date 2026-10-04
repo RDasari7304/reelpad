@@ -46,12 +46,21 @@ instagramRouter.get(
       const coin = await getCoin(state.coinId);
       if (!coin || coin.creator_wallet !== state.wallet) return fail("This coin doesn't belong to the wallet that started the connection");
 
-      const { shortToken, permissions } = await exchangeCode(String(req.query.code ?? ""));
-      if (!permissions.includes("instagram_business_content_publish")) {
+      // Each step names itself in the error, so a failure says where it happened, not just "request error".
+      const step = async <T,>(name: string, fn: () => Promise<T>): Promise<T> => {
+        try {
+          return await fn();
+        } catch (e) {
+          logger.warn({ step: name, err: (e as Error).message, coinId }, "instagram connect step failed");
+          throw new Error(`${name}: ${(e as Error).message}`);
+        }
+      };
+      const { shortToken, permissions, userId } = await step("Logging in", () => exchangeCode(String(req.query.code ?? "")));
+      if (permissions.length && permissions[0] && !permissions.includes("instagram_business_content_publish")) {
         return fail("Publishing permission was not granted. Reconnect and allow content publishing.");
       }
-      const { token, expiresAt } = await toLongLived(shortToken);
-      const me = await getMe(token);
+      const { token, expiresAt } = await step("Getting a long-lived token", () => toLongLived(shortToken));
+      const me = await step("Reading the Instagram profile", () => getMe(token, userId));
       if (me.accountType && !["BUSINESS", "MEDIA_CREATOR", "CREATOR"].includes(me.accountType.toUpperCase())) {
         return fail("This Instagram account must be a Professional (Creator or Business) account");
       }

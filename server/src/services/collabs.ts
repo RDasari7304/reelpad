@@ -13,7 +13,8 @@ export interface CollabPartner {
   coinId: string;
   name: string;
   symbol: string;
-  instagram: string;
+  /** The friend's Instagram, if it has one (then it's tagged and invited as a collaborator). */
+  instagram: string | null;
   imageUrl: string;
   brief: string;
 }
@@ -40,7 +41,7 @@ export async function pickCollabPartner(coin: CoinRow, rand: () => number = Math
             CASE WHEN rc.coin_a = $1 THEN rc.feeling_a ELSE rc.feeling_b END AS feeling
      FROM room_conversations rc
      JOIN coins o ON o.id = CASE WHEN rc.coin_a = $1 THEN rc.coin_b ELSE rc.coin_a END
-     JOIN instagram_accounts i ON i.coin_id = o.id AND i.status = 'active'
+     LEFT JOIN instagram_accounts i ON i.coin_id = o.id AND i.status = 'active'
      WHERE (rc.coin_a = $1 OR rc.coin_b = $1) AND rc.ends_at < now() AND rc.ends_at > now() - interval '7 days'
        AND o.status = 'live' AND o.activity_state = 'active'
        AND NOT EXISTS (
@@ -55,10 +56,10 @@ export async function pickCollabPartner(coin: CoinRow, rand: () => number = Math
     coinId: r.id,
     name: r.name,
     symbol: r.symbol,
-    instagram: r.username,
+    instagram: r.username ?? null,
     imageUrl: r.image_url,
     brief: [
-      `${r.name} ($${r.symbol}, @${r.username})`,
+      `${r.name} ($${r.symbol}${r.username ? `, @${r.username}` : ""})`,
       personalityText(p) && `Personality: ${personalityText(p)}`,
       p.backstory && `Backstory: ${String(p.backstory).slice(0, 500)}`,
       p.voice && `How they talk: ${String(p.voice).slice(0, 200)}`,
@@ -76,7 +77,9 @@ export function collabBrief(partner: CollabPartner): string {
     `THIS POST IS A COLLAB with your friend from the Reelpad Room:`,
     partner.brief,
     `Make it a post you two do together: both of you appear in the image(s), doing something that fits both personalities and your relationship. In every image prompt, describe what "you" and "${partner.name}" are each doing (the second reference image shows ${partner.name}).`,
-    `Mention @${partner.instagram} naturally once in the caption. Keep it about the two of you, no coin or price talk.`,
+    partner.instagram
+      ? `Mention @${partner.instagram} naturally once in the caption. Keep it about the two of you, no coin or price talk.`
+      : `Mention ${partner.name} naturally once in the caption. Keep it about the two of you, no coin or price talk.`,
   ].join("\n");
 }
 

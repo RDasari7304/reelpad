@@ -427,7 +427,7 @@ export default function CoinPage() {
                 @{coin.instagram.username}
               </a>
             ) : (
-              "No Instagram account connected"
+              <span className="pad-native">Lives on Reelpad</span>
             )}
           </p>
           {coin.description && <p className="profile-bio">{coin.description}</p>}
@@ -469,7 +469,7 @@ export default function CoinPage() {
           Trading in ${coin.symbol} has slowed down, so {coin.name} is posting a few times a day (no Reels) until it picks back up.
         </Notice>
       )}
-      {igActive && coin.status === "live" && coin.activity !== "dormant" && (
+      {coin.status === "live" && coin.activity !== "dormant" && (
         <NextPostCountdown
           coin={coin}
           making={making}
@@ -508,7 +508,7 @@ export default function CoinPage() {
             {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "comments" ? "Comments" : t === "shoutouts" ? "Shoutouts" : t === "treasury" ? "Treasury" : "Settings"}
           </button>
         ))}
-        {owner && igActive && coin.status === "live" && shown === "posts" && (
+        {owner && coin.status === "live" && shown === "posts" && (
           <button className="btn btn-small tabs-action" onClick={generate}>
             Make a post now
           </button>
@@ -531,7 +531,9 @@ export default function CoinPage() {
       {shown === "posts" &&
         (posts.length === 0 ? (
           <p className="empty-line">
-            {igActive ? "The first post is being planned. It appears here as soon as it's made." : "Posts appear here once Instagram is connected."}
+            {coin.status === "live"
+              ? `${coin.name}'s first post is on its way. It appears here as soon as it's made.`
+              : "Posts appear here once the coin launches."}
           </p>
         ) : (
           <div className="posts">

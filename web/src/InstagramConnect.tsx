@@ -13,12 +13,13 @@ export function InstagramConnect({ coin, launched, onChange }: { coin: Coin; lau
   const access = coin.instagramAccess ?? null;
   const expired = coin.instagram?.status === "expired";
   const connectHref = `/api/instagram/connect?coinId=${coin.id}`;
-  const title = launched ? "Your coin is live. Now give it a voice." : "Connect the character's Instagram";
+  const title = launched ? `${coin.name} is live and posting on Reelpad. Take it to Instagram too?` : `Take ${coin.name} to Instagram (optional)`;
 
   const setupSteps = (
     <p>
-      Create an Instagram account for {coin.name} and switch it to a Creator or Business account (in Instagram: Settings, then
-      Account type and tools). The character starts posting a couple of minutes after you connect it.
+      {coin.name} already posts here on Reelpad. Connect an Instagram account and everything it posts also goes to Instagram,
+      more often, where it answers comments and grows a real following. Create an account for {coin.name} and switch it to a
+      Creator or Business account (in Instagram: Settings, then Account type and tools).
     </p>
   );
 

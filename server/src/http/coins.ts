@@ -444,7 +444,7 @@ postsRouter.get(
        FROM posts p
        LEFT JOIN coins o ON o.id = p.collab_coin_id
        JOIN coins c ON c.id = p.coin_id AND c.status = 'live'
-       JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+       LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
        WHERE p.status = 'published' AND p.published_at IS NOT NULL
          AND ($2::timestamptz IS NULL OR p.published_at < $2)
          AND ($3::timestamptz IS NULL OR p.published_at > $3)

@@ -87,13 +87,34 @@ export async function exchangeCode(code: string) {
   return { shortToken: row.access_token as string, userId: String(row.user_id), permissions };
 }
 
+/**
+ * Tries the same Instagram call on a few equivalent endpoints (unversioned and versioned), because
+ * Instagram sometimes answers one with "Unsupported get request" (code 100) while another works.
+ */
+async function firstThatWorks<T>(attempts: Array<() => Promise<T>>): Promise<T> {
+  let last: unknown;
+  for (const a of attempts) {
+    try {
+      return await a();
+    } catch (e) {
+      last = e;
+      // Only an expired/invalid token is final; anything else is worth the next endpoint.
+      if (e instanceof InstagramError && e.isAuth && e.code === 190 && e.subcode === 463) break;
+    }
+  }
+  throw last;
+}
+
 export async function toLongLived(shortToken: string) {
-  const u = new URL(`${GRAPH}/access_token`);
-  u.searchParams.set("grant_type", "ig_exchange_token");
-  u.searchParams.set("client_secret", config.IG_APP_SECRET);
-  u.searchParams.set("access_token", shortToken);
-  const json = await igFetch<{ access_token: string; expires_in: number }>(u.toString());
-  return { token: json.access_token, expiresAt: new Date(Date.now() + json.expires_in * 1000) };
+  const exchange = (base: string) => async () => {
+    const u = new URL(`${base}/access_token`);
+    u.searchParams.set("grant_type", "ig_exchange_token");
+    u.searchParams.set("client_secret", config.IG_APP_SECRET);
+    u.searchParams.set("access_token", shortToken);
+    const json = await igFetch<{ access_token: string; expires_in: number }>(u.toString());
+    return { token: json.access_token, expiresAt: new Date(Date.now() + (json.expires_in || 60 * 24 * 3600) * 1000) };
+  };
+  return firstThatWorks([exchange(GRAPH), exchange(V())]);
 }
 
 export async function refreshToken(token: string) {
@@ -104,14 +125,32 @@ export async function refreshToken(token: string) {
   return { token: json.access_token, expiresAt: new Date(Date.now() + json.expires_in * 1000) };
 }
 
-export async function getMe(token: string) {
-  const u = new URL(`${V()}/me`);
-  u.searchParams.set("fields", "user_id,username,account_type,profile_picture_url");
-  u.searchParams.set("access_token", token);
-  const me = await igFetch<{ user_id?: string; id: string; username: string; account_type?: string; profile_picture_url?: string }>(
-    u.toString(),
-  );
-  return { igUserId: String(me.user_id ?? me.id), username: me.username, accountType: me.account_type ?? null, picture: me.profile_picture_url ?? null };
+/**
+ * The logged-in account's profile. Instagram sometimes rejects "/me" with "Unsupported get request"
+ * (for some accounts, versions or fields), so this falls back to fewer fields, the unversioned API,
+ * and finally the account's own ID from the login step.
+ */
+export async function getMe(token: string, userId?: string) {
+  type Me = { user_id?: string; id: string; username: string; account_type?: string; profile_picture_url?: string };
+  const get = (base: string, node: string, fields: string) => async () => {
+    const u = new URL(`${base}/${node}`);
+    u.searchParams.set("fields", fields);
+    u.searchParams.set("access_token", token);
+    const me = await igFetch<Me>(u.toString());
+    if (!me.username) throw new InstagramError("Instagram returned no username");
+    return me;
+  };
+  const full = "user_id,username,account_type,profile_picture_url";
+  const basic = "id,username,account_type";
+  const attempts = [get(V(), "me", full), get(V(), "me", basic), get(GRAPH, "me", basic)];
+  if (userId && userId !== "undefined") attempts.push(get(V(), userId, "id,username,account_type,profile_picture_url"), get(GRAPH, userId, "id,username"));
+  const me = await firstThatWorks(attempts);
+  return {
+    igUserId: String(me.user_id ?? me.id ?? userId),
+    username: me.username,
+    accountType: me.account_type ?? null,
+    picture: me.profile_picture_url ?? null,
+  };
 }
 
 // ---------- publishing ----------

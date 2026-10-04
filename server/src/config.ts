@@ -90,7 +90,10 @@ const schema = z.object({
   ROOM_MAX_CONVERSATIONS: num(3), // conversations running at once in the Room (only while someone is watching)
   CONTENT_MIN_POSTS_PER_DAY: num(12), // every coin posts at least this often
   CONTENT_MAX_POSTS_PER_DAY: num(24), // most posts a creator can schedule per day (Instagram allows 100 per 24h)
-  CONTENT_MAX_REELS_PER_WEEK: num(21), // most Reels per week; Reels cost the most to generate
+  CONTENT_MAX_REELS_PER_WEEK: num(21),
+  // Influencers that live only on Reelpad (no Instagram connected yet) post less, to keep AI costs in check.
+  PAD_POSTS_PER_DAY: num(6),
+  PAD_REELS_PER_WEEK: num(2), // most Reels per week; Reels cost the most to generate
   CAPTION_FOOTER: z.string().default("AI-generated persona. Not financial advice."),
 
   // Buybacks and burns are always live on-chain. The old TREASURY_DRY_RUN setting is ignored on purpose, so a

@@ -3283,3 +3283,136 @@ textarea.input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Equal-height cards: feed and coin page ──
+   Every card in a row is the same height, headers are one fixed height, media share one shape,
+   captions take the same number of lines, and links sit on the bottom edge. */
+.feed {
+  align-items: stretch;
+}
+.feed-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.feed-head {
+  height: 66px;
+  box-sizing: border-box;
+  flex: none;
+}
+.feed-who > span {
+  line-height: 1.25;
+}
+.feed-name {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feed-media {
+  aspect-ratio: 4 / 5;
+  flex: none;
+  overflow: hidden;
+}
+.feed-media img,
+.feed-media video {
+  height: 100%;
+  aspect-ratio: auto;
+}
+.feed-carousel {
+  height: 100%;
+}
+.feed-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.feed-caption-wrap {
+  min-height: calc(1.5em * 5);
+}
+.feed-caption {
+  margin: 0;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.feed-caption.open {
+  display: block;
+}
+.feed-more {
+  margin-top: 2px;
+  font-size: var(--t-sm);
+}
+.feed-links {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.feed-onpad {
+  color: var(--ink-soft);
+}
+.pad-native {
+  color: var(--violet-deep);
+  font-weight: 600;
+}
+
+.posts {
+  align-items: stretch;
+}
+.post {
+  min-width: 0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.post-media {
+  aspect-ratio: 4 / 5;
+  flex: none;
+  overflow: hidden;
+}
+.post-caption {
+  line-height: 1.5;
+  -webkit-line-clamp: 5;
+  min-height: calc(1.5em * 5);
+}
+.post-body .collab-badge,
+.post-body .status {
+  flex: none;
+}
+/* Media fill a fixed 4:5 frame (absolute, so tall images or carousels can't stretch the card). */
+.feed-media > img,
+.feed-media > video,
+.feed-media > .feed-carousel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.feed-carousel > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.feed-media > .post-format {
+  z-index: 1;
+}
+.feed-carousel .feed-arrow,
+.feed-carousel .feed-dots {
+  z-index: 1;
+}
+.post-media > img,
+.post-media > video,
+.post-media > .post-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.post-media > .post-format {
+  z-index: 1;
+}

@@ -33,7 +33,7 @@ function ProfilePreview(props: { name: string; symbol: string; description: stri
     persona.personality === "custom" ? persona.personalityCustom : persona.personality ? config.catalog.personalities[persona.personality] : "";
   const style = persona.visualStyle === "custom" ? persona.visualStyleCustom || "Custom style" : humanize(persona.visualStyle);
   return (
-    <aside className="phone" aria-label="Instagram profile preview">
+    <aside className="phone" aria-label="Influencer profile preview">
       <div className="phone-screen">
         <div className="ig-top">
           <span className="ig-handle">{handle}</span>
@@ -69,7 +69,7 @@ function ProfilePreview(props: { name: string; symbol: string; description: stri
           ))}
         </div>
       </div>
-      <p className="phone-note">Preview. Connect the real Instagram account right after launch.</p>
+      <p className="phone-note">Preview of its profile. It starts posting on Reelpad right after launch.</p>
     </aside>
   );
 }
@@ -117,7 +117,7 @@ export default function Launch() {
   const busy = stage !== "idle" && stage !== "done";
   const igNorm = normalizeInstagramUsername(igUsername);
   const igValid = !igUsername.trim() || igNorm !== null;
-  const canSubmit = name.trim() && symbol.trim() && (file || coin) && accepted && igNorm !== null && !busy;
+  const canSubmit = name.trim() && symbol.trim() && (file || coin) && accepted && igValid && !busy;
 
   async function launch() {
     setError(null);
@@ -142,7 +142,7 @@ export default function Launch() {
             description,
             twitter: twitter || undefined,
             telegram: telegram || undefined,
-            instagramUsername: igNorm ?? igUsername.trim(),
+            instagramUsername: igNorm ?? undefined,
             persona,
             contentSettings: content,
           }),
@@ -214,8 +214,8 @@ export default function Launch() {
           <details className="more">
             <summary>Links</summary>
             <div className="grid-3">
-              <Field label="Website" hint="Set automatically: the coin's Instagram account, entered in step 3.">
-                <input className="input" value={igNorm ? `instagram.com/${igNorm}` : "instagram.com/…"} readOnly disabled />
+              <Field label="Website" hint="Set automatically: the influencer's page on Reelpad, or its Instagram if you add one in step 3.">
+                <input className="input" value={igNorm ? `instagram.com/${igNorm}` : "reelpad.fun/coin/…"} readOnly disabled />
               </Field>
               <Field label="X">
                 <input className="input" type="url" placeholder="https://x.com/…" value={twitter} onChange={(e) => setTwitter(e.target.value)} disabled={!!coin} />
@@ -240,12 +240,10 @@ export default function Launch() {
           </h2>
           <div className="grid-2">
             <Field
-              label="Instagram account (required)"
+              label="Instagram account (optional)"
               error={igValid ? undefined : "Use letters, numbers, periods and underscores (max 30)."}
               hint={
-                config.igAccessMode === "testers"
-                  ? "The coin's Instagram (a Creator or Business account). It becomes the token's website on pump.fun and can't be changed after launch, so make the account first."
-                  : "The coin's Instagram (a Creator or Business account). It becomes the token's website on pump.fun and can't be changed after launch. You'll log in with it right after launch."
+                "Your influencer lives on Reelpad from the moment it launches. Add an Instagram account (Creator or Business) to also post there and make it the token's website on pump.fun. You can also connect one any time after launch; the website then stays the Reelpad page."
               }
             >
               <input
@@ -313,15 +311,13 @@ export default function Launch() {
               <strong>I understand</strong>
               <small>
                 The coin is created on pump.fun from my wallet, its creator fees go to an AI-run treasury that automatically buys back and burns the coin, I can't withdraw from it, and
-                the AI character posts publicly on the Instagram account I connect. I've read the Terms.
+                the AI character posts publicly on Reelpad (and on Instagram, if I connect an account). I've read the Terms.
               </small>
             </span>
           </label>
           {error && <Notice tone="error">{error}</Notice>}
           {busy && <Notice>{STAGE_TEXT[stage]}</Notice>}
-          {publicKey && !coin && igNorm === null && (
-            <p className="sub-hint">Enter the coin's Instagram username in step 3 to launch. It becomes the token's website.</p>
-          )}
+          {publicKey && !coin && !igValid && <p className="sub-hint">Fix the Instagram username in step 3, or leave it empty.</p>}
           <button className="btn btn-primary btn-big" onClick={launch} disabled={publicKey ? !canSubmit : false}>
             {!publicKey ? "Connect wallet to launch" : coin ? "Try launching again" : "Launch coin"}
           </button>

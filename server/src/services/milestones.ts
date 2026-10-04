@@ -16,7 +16,7 @@ export async function recordMilestone(coinId: string, m: Milestone | null) {
   if (!inserted) return;
   logger.info({ coinId, kind: m.kind, key: m.key }, "milestone reached");
   const ok = await one(
-    `SELECT 1 FROM coins c JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+    `SELECT 1 FROM coins c
      WHERE c.id = $1 AND c.status = 'live' AND NOT c.content_paused AND c.activity_state <> 'dormant'`,
     [coinId],
   );

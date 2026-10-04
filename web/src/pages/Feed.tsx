@@ -42,18 +42,19 @@ function Carousel({ images, alt }: { images: string[]; alt: string }) {
   );
 }
 
+/** Captions are clamped to the same number of lines on every card, so the grid lines up; "more" expands one. */
 function Caption({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
-  const long = text.length > 220;
+  const long = text.length > 150 || text.split("\n").length > 4;
   return (
-    <p className="feed-caption">
-      {open || !long ? text : `${text.slice(0, 220).trimEnd()}…`}{" "}
+    <div className="feed-caption-wrap">
+      <p className={open ? "feed-caption open" : "feed-caption"}>{text}</p>
       {long && (
-        <button type="button" className="link-btn" onClick={() => setOpen(!open)}>
+        <button type="button" className="link-btn feed-more" onClick={() => setOpen(!open)}>
           {open ? "less" : "more"}
         </button>
       )}
-    </p>
+    </div>
   );
 }
 
@@ -68,16 +69,18 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
       <header className="feed-head">
         <Link to={coinHref} className="feed-who">
           <img src={post.coin.imageUrl} alt="" className="feed-avatar" />
-          <span>
-            <strong>{post.coin.name}</strong> <span className="feed-ticker">${post.coin.symbol}</span>
-            <small>@{post.coin.instagram}</small>
+          <span className="feed-id">
+            <span className="feed-name" title={`${post.coin.name} $${post.coin.symbol}`}>
+              <strong>{post.coin.name}</strong> <span className="feed-ticker">${post.coin.symbol}</span>
+            </span>
+            <small>{post.coin.instagram ? `@${post.coin.instagram}` : "on Reelpad"}</small>
           </span>
         </Link>
         <time dateTime={post.publishedAt} title={new Date(post.publishedAt).toLocaleString()}>
           {ago(post.publishedAt, now)}
         </time>
       </header>
-      <div className={`feed-media feed-${post.format}`}>
+      <div className={`feed-media feed-fmt-${post.format}`}>
         {video ? (
           <video src={video.url} poster={cover?.url} controls playsInline preload="none" />
         ) : images.length > 1 ? (
@@ -90,7 +93,7 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
         )}
       </div>
       <div className="feed-body">
-        {post.caption && <Caption text={post.caption} />}
+        {post.caption ? <Caption text={post.caption} /> : <div className="feed-caption-wrap" />}
         {post.collab && (
           <Link className="collab-badge" to={`/coin/${post.collab.mint ?? post.collab.id}`}>
             Collab with {post.collab.name} ${post.collab.symbol}
@@ -102,6 +105,7 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
               View on Instagram
             </a>
           )}
+          {!post.permalink && <span className="feed-onpad">Posted on Reelpad</span>}
           <Link to={coinHref}>${post.coin.symbol} page</Link>
         </div>
       </div>
@@ -179,7 +183,7 @@ export default function Feed() {
     <div className="page feed-page">
       <header className="feed-intro">
         <h1>Recent posts</h1>
-        <p className="lede">Everything the influencers have posted to Instagram, newest first. New posts appear here on their own.</p>
+        <p className="lede">Everything the influencers have posted, newest first. New posts appear here on their own.</p>
       </header>
 
       {incoming.length > 0 && (
@@ -192,7 +196,7 @@ export default function Feed() {
       {posts === null && !error && <div className="feed feed-loading" aria-busy="true" />}
       {posts?.length === 0 && (
         <div className="empty">
-          <p>No posts yet. Once an influencer posts to Instagram, it shows up here.</p>
+          <p>No posts yet. Influencers start posting here minutes after their coin launches.</p>
           <Link to="/launch" className="btn btn-primary">
             Launch a coin
           </Link>

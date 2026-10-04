@@ -357,7 +357,9 @@ async function planWithClaude(
         imageUrl: opts.collab.imageUrl,
       };
       // Make sure the friend is tagged even if the caption forgot.
-      if (!plan.caption.toLowerCase().includes(`@${opts.collab.instagram.toLowerCase()}`)) plan.caption += ` (with @${opts.collab.instagram})`;
+      if (opts.collab.instagram && !plan.caption.toLowerCase().includes(`@${opts.collab.instagram.toLowerCase()}`)) {
+        plan.caption += ` (with @${opts.collab.instagram})`;
+      }
     }
     if (violations.length === 0 && plan.caption && plan.image_prompts.length) return { plan, arc: opts.story ? arc : null };
     feedback = `Your previous caption broke the rules (${violations.join(", ") || "missing image prompts"}). Rewrite it without that.`;
@@ -395,8 +397,9 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
   if (kill.content) return logger.info({ coinId }, "content kill switch on; skipping plan");
   const coin = await getCoin(coinId);
   if (!coin || coin.status !== "live" || coin.content_paused) return;
+  // Every influencer posts on Reelpad; Instagram, when connected, gets the same posts too.
   const ig = await getInstagram(coinId);
-  if (!ig || ig.status !== "active") return logger.info({ coinId }, "no active Instagram account; skipping");
+  const onInstagram = !!ig && ig.status === "active";
 
   const recent = await query<{ format: Format }>(
     `SELECT format FROM posts WHERE coin_id = $1 AND status <> 'planned' ORDER BY created_at DESC LIMIT 3`,
@@ -409,7 +412,7 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
   );
   // Coins whose trading has dried up still post a little, but no Reels (the most expensive format).
   const reelsCap = reelsAllowed(coin.activity_state ?? "active")
-    ? Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK)
+    ? Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK, onInstagram ? Infinity : config.PAD_REELS_PER_WEEK)
     : 0;
   // The very first post (queued the moment Instagram connects) leads with a Reel when Reels are on.
   const isFirst = recent.rows.length === 0;
@@ -684,7 +687,14 @@ export async function publishPost(postId: string) {
   }>(`SELECT id, coin_id, format, caption, media, status, ig_container_id, plan FROM posts WHERE id = $1`, [postId]);
   if (!post || !["ready", "publishing"].includes(post.status)) return;
   const ig = await getInstagram(post.coin_id);
-  if (!ig || ig.status !== "active") throw new PermanentError("Instagram account is not connected");
+  if (!ig || ig.status !== "active") {
+    // Lives on Reelpad only (no Instagram connected): the post goes live on the site.
+    await query(
+      `UPDATE posts SET status = 'published', published_at = COALESCE(published_at, now()), error = NULL, progress = 100, stage = NULL WHERE id = $1`,
+      [postId],
+    );
+    return;
+  }
 
   // Retry safety: if a previous attempt already published this container, don't post it twice.
   if (post.ig_container_id && (await containerStatus(post.ig_container_id, ig.token)) === "PUBLISHED") {
@@ -776,9 +786,18 @@ export async function resumeBudgetStalled() {
 /** Called every minute: enqueue plans for coins whose next post is due. */
 export async function scheduleDuePosts() {
   // Dormant coins (no real trading for days) don't post at all; they're revived when trading returns.
-  const due = await query<{ id: string; content_settings: { postsPerDay: number }; activity_state: "active" | "cooling" | "dormant" }>(
-    `SELECT c.id, c.content_settings, c.activity_state FROM coins c
-     JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+  // Every live influencer posts on Reelpad, with or without Instagram (Instagram ones post more often).
+  const due = await query<{
+    id: string;
+    content_settings: { postsPerDay: number };
+    activity_state: "active" | "cooling" | "dormant";
+    on_ig: boolean;
+    has_posts: boolean;
+  }>(
+    `SELECT c.id, c.content_settings, c.activity_state, (i.coin_id IS NOT NULL) AS on_ig,
+            EXISTS (SELECT 1 FROM posts p WHERE p.coin_id = c.id AND p.status <> 'rejected') AS has_posts
+     FROM coins c
+     LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
      WHERE c.status = 'live' AND NOT c.content_paused AND c.activity_state <> 'dormant'
        AND (c.next_post_at IS NULL OR c.next_post_at <= now())
      LIMIT 50`,
@@ -788,9 +807,10 @@ export async function scheduleDuePosts() {
       config.CONTENT_MAX_POSTS_PER_DAY,
       Math.max(config.CONTENT_MIN_POSTS_PER_DAY, c.content_settings.postsPerDay ?? config.CONTENT_MIN_POSTS_PER_DAY),
     );
-    const perDay = postsPerDayFor(c.activity_state ?? "active", setting);
+    const perDay = postsPerDayFor(c.activity_state ?? "active", c.on_ig ? setting : Math.min(setting, config.PAD_POSTS_PER_DAY));
     if (perDay <= 0) continue;
     await query(`UPDATE coins SET next_post_at = $2 WHERE id = $1`, [c.id, nextPostAt(new Date(), perDay)]);
-    await enqueue("content.plan", { coinId: c.id, trigger: "schedule" }, { dedupeKey: `plan:${c.id}`, maxAttempts: 3 });
+    // A brand-new influencer's first post introduces it (and leads with a Reel when Reels are on).
+    await enqueue("content.plan", { coinId: c.id, trigger: c.has_posts ? "schedule" : "first" }, { dedupeKey: `plan:${c.id}`, maxAttempts: 3 });
   }
 }

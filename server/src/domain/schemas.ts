@@ -67,12 +67,14 @@ export const instagramUsernameSchema = z.string().transform((s, ctx) => {
 });
 
 export const coinDraftSchema = z.object({
-  // Required: the token's website on pump.fun links to this Instagram profile from the moment it launches.
+  // Optional: every influencer lives on Reelpad from launch. If an Instagram account is given here, the
+  // token's website on pump.fun links to it; otherwise the website is the coin's Reelpad page.
   instagramUsername: z
-    .string({ required_error: "Instagram account: enter the coin's Instagram username" })
+    .string()
     .trim()
-    .min(1, "Instagram account: enter the coin's Instagram username")
-    .pipe(instagramUsernameSchema),
+    .optional()
+    .transform((s) => (s ? s : undefined))
+    .pipe(instagramUsernameSchema.optional()),
   name: z.string().trim().min(1).max(32),
   symbol: z
     .string()
