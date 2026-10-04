@@ -6,6 +6,7 @@ import { Address, NextPostCountdown, Notice } from "../components";
 import { ContentEditor, PersonaSummary } from "../editors";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { InstagramConnect } from "../InstagramConnect";
+import { DexScreenerChart } from "../DexScreenerChart";
 import { PriceChart } from "../PriceChart";
 import { useSession } from "../session";
 
@@ -282,6 +283,34 @@ function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void
   );
 }
 
+/** DexScreener's own chart by default; Reelpad's built-in chart as a backup (e.g. a coin DexScreener hasn't listed yet). */
+function ChartTab({ coinKey, symbol, mint }: { coinKey: string; symbol: string; mint: string }) {
+  const [source, setSource] = useState<"dexscreener" | "builtin">("dexscreener");
+  return (
+    <>
+      {source === "dexscreener" ? (
+        <DexScreenerChart mint={mint} symbol={symbol} />
+      ) : (
+        <PriceChart coinKey={coinKey} symbol={symbol} mint={mint} />
+      )}
+      <p className="sub-hint chart-switch">
+        {source === "dexscreener" ? (
+          <>
+            Chart blank or "pair not found"? New coins can take a few minutes to appear on DexScreener.{" "}
+            <button type="button" className="link-btn" onClick={() => setSource("builtin")}>
+              Use the built-in chart
+            </button>
+          </>
+        ) : (
+          <button type="button" className="link-btn" onClick={() => setSource("dexscreener")}>
+            Back to the DexScreener chart
+          </button>
+        )}
+      </p>
+    </>
+  );
+}
+
 export default function CoinPage() {
   const { key } = useParams();
   const [params, setParams] = useSearchParams();
@@ -457,7 +486,7 @@ export default function CoinPage() {
       {shown === "chart" && hasChart && (
         // Its own error boundary: if the chart ever fails, only the chart shows a message; the page keeps working.
         <ErrorBoundary fallback={<p className="empty-line">The chart couldn't be shown right now. Posts and Treasury still work.</p>}>
-          <PriceChart coinKey={coin.mint!} symbol={coin.symbol} mint={coin.mint!} />
+          <ChartTab coinKey={coin.mint!} symbol={coin.symbol} mint={coin.mint!} />
         </ErrorBoundary>
       )}
       {shown === "posts" &&
