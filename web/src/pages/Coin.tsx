@@ -345,7 +345,7 @@ export default function CoinPage() {
   const owner = !!coin.isOwner;
   const couldOwn = !owner && publicKey?.toBase58() === coin.creatorWallet;
   const launched = params.get("launched") === "1";
-  const igActive = coin.instagram?.status === "active" || (coin.instagram && !coin.instagram.status);
+  const igActive = coin.instagram?.status === "active";
 
   const generate = async () => {
     try {
@@ -368,12 +368,12 @@ export default function CoinPage() {
             {coin.name} <span className="profile-ticker">${coin.symbol}</span>
           </h1>
           <p className="profile-handle">
-            {coin.instagram ? (
+            {igActive && coin.instagram ? (
               <a href={`https://instagram.com/${coin.instagram.username}`} target="_blank" rel="noreferrer">
                 @{coin.instagram.username}
               </a>
             ) : (
-              "No Instagram account connected yet"
+              "No Instagram account connected"
             )}
           </p>
           {coin.description && <p className="profile-bio">{coin.description}</p>}
@@ -457,7 +457,7 @@ export default function CoinPage() {
       {tab === "settings" && owner && (
         <>
           <SettingsTab coin={coin} onSaved={setCoin} />
-          {coin.instagram && (
+          {igActive && (
             <button
               className="btn btn-quiet danger"
               onClick={async () => {

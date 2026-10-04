@@ -101,7 +101,14 @@ coinsRouter.get(
     const [ig, request] = await Promise.all([instagramSummary(coin.id), isOwner ? accessRequest(coin.id) : null]);
     res.json({
       coin: publicCoin(coin, {
-        instagram: ig ? { username: ig.username, status: ig.status, picture: ig.profile_picture_url } : null,
+        // The handle only shows while the account is connected. After a disconnect it's gone for everyone;
+        // the owner still learns about an expired connection so they can log in again.
+        instagram:
+          ig?.status === "active"
+            ? { username: ig.username, status: ig.status, picture: ig.profile_picture_url }
+            : ig?.status === "expired" && isOwner
+              ? { username: ig.username, status: ig.status, picture: null }
+              : null,
         instagramAccess: request
           ? { username: request.username, status: request.status, requestedAt: request.requested_at, invitedAt: request.invited_at }
           : null,
