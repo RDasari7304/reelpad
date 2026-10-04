@@ -1,4 +1,5 @@
 import { config } from "../../config.js";
+import { imageInput } from "../../domain/images.js";
 import { clipSeconds, supportsAudio, videoFamily, videoInput } from "../../domain/reel.js";
 
 /**
@@ -48,10 +49,11 @@ async function run<T>(
  * (keeps the influencer recognisable from post to post).
  */
 export async function generateImage(prompt: string, referenceImageUrl: string, aspectRatio: "1:1" | "9:16" = "1:1") {
+  const model = config.FAL_IMAGE_MODEL;
   const out = await run<{ images?: Array<{ url: string }>; has_nsfw_concepts?: boolean[] }>(
-    config.FAL_IMAGE_MODEL,
-    { prompt, image_url: referenceImageUrl, aspect_ratio: aspectRatio, output_format: "jpeg", safety_tolerance: "2" },
-    3 * 60_000,
+    model,
+    imageInput(model, prompt, referenceImageUrl, aspectRatio),
+    4 * 60_000,
   );
   if (out.has_nsfw_concepts?.some(Boolean)) throw new Error("Generated image was flagged by the safety checker");
   const url = out.images?.[0]?.url;

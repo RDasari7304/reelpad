@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+import { applyTier } from "./domain/tiers.js";
 
 const bool = (def: boolean) =>
   z
@@ -60,6 +61,13 @@ const schema = z.object({
   // Only needed if your API key covers several workspaces (Console → Settings → Workspaces shows the ID).
   ANTHROPIC_WORKSPACE_ID: z.string().optional(),
 
+  // premium (default) = best models; standard = the original cheaper models; custom = use the
+  // ANTHROPIC_MODEL / FAL_*_MODEL / REEL_SECONDS / COST_* / QUALITY_CHECK values set below.
+  GENERATION_TIER: z.enum(["standard", "premium", "custom"]).default("premium"),
+  // Claude reviews every generated image against the token image and redraws it once if the character doesn't match.
+  QUALITY_CHECK: bool(true),
+  QUALITY_CHECK_MODEL: z.string().default("claude-sonnet-5-5"),
+  COST_CHECK_USD: num(0.01),
   FAL_KEY: z.string().min(1),
   FAL_IMAGE_MODEL: z.string().default("fal-ai/flux-pro/kontext"),
   // Reels: a video model with native audio, so the character speaks (lip-synced) with sound effects.
@@ -103,7 +111,7 @@ function load(): Config {
     console.error(`Invalid environment configuration:\n${issues}\nSee .env.example`);
     process.exit(1);
   }
-  return parsed.data;
+  return applyTier(parsed.data);
 }
 
 export const config = load();

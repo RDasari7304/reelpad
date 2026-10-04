@@ -8,6 +8,8 @@ import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/pers
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
+import { applyTier, TIERS } from "../src/domain/tiers.ts";
+import { imageInput } from "../src/domain/images.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
@@ -369,5 +371,31 @@ describe("token website", () => {
   it("points to the Instagram profile when there is one", () => {
     assert.equal(coinWebsite("https://reelpad.fun", "Mint1", "the_daytraderr"), "https://www.instagram.com/the_daytraderr/");
     assert.equal(coinWebsite("https://reelpad.fun", "Mint1", null), "https://reelpad.fun/coin/Mint1");
+  });
+});
+
+describe("generation tiers", () => {
+  const base = { ...TIERS.standard, GENERATION_TIER: "premium" as const, OTHER: 1 };
+  it("premium switches every model", () => {
+    const c = applyTier(base);
+    assert.equal(c.FAL_IMAGE_MODEL, "fal-ai/nano-banana-pro/edit");
+    assert.equal(c.FAL_REEL_MODEL, "fal-ai/veo3.1/fast/image-to-video");
+    assert.equal(c.ANTHROPIC_MODEL, "claude-opus-5-5");
+    assert.equal(c.QUALITY_CHECK, true);
+    assert.equal(c.OTHER, 1);
+  });
+  it("custom keeps the environment's values", () => {
+    const c = applyTier({ ...base, GENERATION_TIER: "custom" as const, FAL_IMAGE_MODEL: "x" });
+    assert.equal(c.FAL_IMAGE_MODEL, "x");
+  });
+  it("builds the right image request per model", () => {
+    const nb = imageInput("fal-ai/nano-banana-pro/edit", "p", "ref", "9:16");
+    assert.deepEqual(nb.image_urls, ["ref"]);
+    assert.equal(nb.resolution, "2K");
+    const k = imageInput("fal-ai/flux-pro/kontext", "p", "ref", "1:1");
+    assert.equal(k.image_url, "ref");
+  });
+  it("Veo reels are 6 seconds", () => {
+    assert.equal(clipSeconds(videoFamily(TIERS.premium.FAL_REEL_MODEL), TIERS.premium.REEL_SECONDS), 6);
   });
 });

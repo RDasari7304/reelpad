@@ -14,6 +14,10 @@ export async function structured<T>(opts: {
   toolDescription: string;
   schema: Record<string, unknown>;
   maxTokens?: number;
+  /** Public image URLs to show Claude along with the prompt. */
+  images?: string[];
+  /** Overrides ANTHROPIC_MODEL for this call. */
+  model?: string;
 }): Promise<T> {
   // Authorization: Bearer is the current, preferred header and works for every key type
   // (personal sk-ant-usr-… keys, service account keys, and legacy workspace keys).
@@ -29,10 +33,18 @@ export async function structured<T>(opts: {
     method: "POST",
     headers,
     body: JSON.stringify({
-      model: config.ANTHROPIC_MODEL,
+      model: opts.model ?? config.ANTHROPIC_MODEL,
       max_tokens: opts.maxTokens ?? 4000,
       system: opts.system,
-      messages: [{ role: "user", content: `${opts.user}\n\nRespond with: ${opts.toolDescription}` }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...(opts.images ?? []).map((url) => ({ type: "image", source: { type: "url", url } })),
+            { type: "text", text: `${opts.user}\n\nRespond with: ${opts.toolDescription}` },
+          ],
+        },
+      ],
       output_config: { format: { type: "json_schema", schema: opts.schema } },
     }),
   });

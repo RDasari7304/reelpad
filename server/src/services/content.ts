@@ -9,6 +9,7 @@ import { captionOpener, pickVariety, type Variety } from "../domain/variety.js";
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
 import { generateImage, generateVideo, reelSeconds, reelsHaveAudio } from "./ai/fal.js";
+import { reviewImage } from "./ai/review.js";
 import { getCoin, getInstagram, markInstagramExpired, type CoinRow } from "./coins.js";
 import { containerStatus, InstagramError, publish } from "./instagram.js";
 import { rehostImageForInstagram, rehostVideo } from "./media.js";
@@ -331,6 +332,22 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
   await enqueue("content.generate", { postId }, { dedupeKey: `gen:${postId}`, maxAttempts: 3 });
 }
 
+/**
+ * Draws an image, then (premium tier) has Claude compare it with the token image. If the character
+ * doesn't match or the image is broken, it's redrawn once with Claude's note.
+ */
+async function drawChecked(postId: string, prompt: string, ref: string, aspect: "1:1" | "9:16", stage: string) {
+  const first = await generateImage(prompt, ref, aspect);
+  if (!config.QUALITY_CHECK || !(await reserveSpend(config.COST_CHECK_USD))) return first;
+  await query(`UPDATE posts SET stage = $2 WHERE id = $1`, [postId, stage]);
+  const review = await reviewImage(first, ref, prompt);
+  await query(`UPDATE posts SET cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_CHECK_USD]);
+  if (review.pass || !(await reserveSpend(config.COST_IMAGE_USD))) return first;
+  logger.info({ postId, fix: review.fix }, "image failed the quality check; redrawing");
+  await query(`UPDATE posts SET stage = 'Redrawing to match the character', cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_IMAGE_USD]);
+  return generateImage(`${prompt} Important: ${review.fix || "match the reference character exactly."}`, ref, aspect);
+}
+
 /** Job: generate media for a planned post and store it permanently. */
 export async function generatePost(postId: string) {
   const post = await one<{ id: string; coin_id: string; format: Format; plan: PostPlan; status: string }>(
@@ -364,7 +381,7 @@ export async function generatePost(postId: string) {
   const media: Array<{ type: "image" | "video"; url: string; key: string; role?: string }> = [];
   if (post.format === "reel") {
     await setProgress(postId, 22, "Drawing the opening frame");
-    const keyframe = await generateImage(fullPrompt(prompts[0]!), coin.image_url, "9:16");
+    const keyframe = await drawChecked(postId, fullPrompt(prompts[0]!), coin.image_url, "9:16", "Checking the opening frame");
     const cover = await rehostImageForInstagram(keyframe, coin.id, "9:16");
     const audio = reelsHaveAudio();
     const stage = audio && post.plan.spoken_line ? "Filming the Reel: voice, lip sync and sound" : audio ? "Filming the Reel with sound" : "Animating the Reel";
@@ -389,7 +406,7 @@ export async function generatePost(postId: string) {
     for (const [i, p] of prompts.entries()) {
       const label = prompts.length > 1 ? `Drawing image ${i + 1} of ${prompts.length}` : "Drawing the image";
       await setProgress(postId, 22 + (i / prompts.length) * 63, label);
-      const remote = await generateImage(fullPrompt(p, i), coin.image_url, "1:1");
+      const remote = await drawChecked(postId, fullPrompt(p, i), coin.image_url, "1:1", `${label}: quality check`);
       media.push({ type: "image", ...(await rehostImageForInstagram(remote, coin.id, "1:1")) });
     }
   }
