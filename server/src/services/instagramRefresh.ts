@@ -1,7 +1,7 @@
 import { query } from "../db/pool.js";
 import { logger } from "../lib/logger.js";
 import { openString, seal } from "../lib/secrets.js";
-import { InstagramError, refreshToken } from "./instagram.js";
+import { InstagramError, refreshToken, toLongLived } from "./instagram.js";
 
 /**
  * Long-lived Instagram tokens last 60 days and can be refreshed once they're 24h old.
@@ -29,4 +29,29 @@ export async function refreshExpiringTokens() {
     }
   }
   await query(`UPDATE instagram_accounts SET status = 'expired' WHERE status = 'active' AND token_expires_at < now()`);
+}
+
+/**
+ * Accounts connected with a short-lived token (the 60-day swap failed during login): keep trying the
+ * swap every minute until it works or the short token runs out.
+ */
+export async function upgradeShortTokens() {
+  const rows = await query<{ coin_id: string; token_enc: string }>(
+    `SELECT coin_id, token_enc FROM instagram_accounts
+     WHERE status = 'active' AND token_expires_at > now() AND token_expires_at < now() + interval '2 hours'
+       AND connected_at > now() - interval '2 hours'
+     LIMIT 20`,
+  );
+  for (const row of rows.rows) {
+    try {
+      const { token, expiresAt } = await toLongLived(openString(row.token_enc));
+      await query(
+        `UPDATE instagram_accounts SET token_enc = $2, token_expires_at = $3, last_refreshed_at = now() WHERE coin_id = $1`,
+        [row.coin_id, seal(token), expiresAt],
+      );
+      logger.info({ coinId: row.coin_id }, "instagram token upgraded to long-lived");
+    } catch (e) {
+      logger.warn({ coinId: row.coin_id, err: (e as Error).message }, "long-lived token swap still failing");
+    }
+  }
 }

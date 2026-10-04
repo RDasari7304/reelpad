@@ -105,16 +105,24 @@ async function firstThatWorks<T>(attempts: Array<() => Promise<T>>): Promise<T> 
   throw last;
 }
 
+/**
+ * Swaps a short-lived token (1 hour) for a long-lived one (60 days). The documented call is a GET, but
+ * Instagram answers some apps with "Unsupported request - method type: get", so the same exchange is
+ * also tried as a POST and on the versioned API.
+ */
 export async function toLongLived(shortToken: string) {
-  const exchange = (base: string) => async () => {
+  const params = { grant_type: "ig_exchange_token", client_secret: config.IG_APP_SECRET, access_token: shortToken };
+  const done = (json: { access_token: string; expires_in: number }) => ({
+    token: json.access_token,
+    expiresAt: new Date(Date.now() + (json.expires_in || 60 * 24 * 3600) * 1000),
+  });
+  const viaGet = (base: string) => async () => {
     const u = new URL(`${base}/access_token`);
-    u.searchParams.set("grant_type", "ig_exchange_token");
-    u.searchParams.set("client_secret", config.IG_APP_SECRET);
-    u.searchParams.set("access_token", shortToken);
-    const json = await igFetch<{ access_token: string; expires_in: number }>(u.toString());
-    return { token: json.access_token, expiresAt: new Date(Date.now() + (json.expires_in || 60 * 24 * 3600) * 1000) };
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    return done(await igFetch<{ access_token: string; expires_in: number }>(u.toString()));
   };
-  return firstThatWorks([exchange(GRAPH), exchange(V())]);
+  const viaPost = (base: string) => async () => done(await igFetch<{ access_token: string; expires_in: number }>(`${base}/access_token`, form(params)));
+  return firstThatWorks([viaGet(GRAPH), viaPost(GRAPH), viaGet(V()), viaPost(V())]);
 }
 
 export async function refreshToken(token: string) {

@@ -59,7 +59,12 @@ instagramRouter.get(
       if (permissions.length && permissions[0] && !permissions.includes("instagram_business_content_publish")) {
         return fail("Publishing permission was not granted. Reconnect and allow content publishing.");
       }
-      const { token, expiresAt } = await step("Getting a long-lived token", () => toLongLived(shortToken));
+      // If Instagram won't swap for a 60-day token right now, connect with the 1-hour token anyway; the worker
+      // keeps retrying the swap in the background (see upgradeShortTokens), so the connection doesn't fail here.
+      const { token, expiresAt } = await toLongLived(shortToken).catch((e) => {
+        logger.warn({ coinId, err: (e as Error).message }, "long-lived token exchange failed; connecting with the short-lived token");
+        return { token: shortToken, expiresAt: new Date(Date.now() + 55 * 60_000) };
+      });
       const me = await step("Reading the Instagram profile", () => getMe(token, userId));
       if (me.accountType && !["BUSINESS", "MEDIA_CREATOR", "CREATOR"].includes(me.accountType.toUpperCase())) {
         return fail("This Instagram account must be a Professional (Creator or Business) account");
