@@ -57,6 +57,8 @@ const schema = z.object({
 
   ANTHROPIC_API_KEY: z.string().min(1),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
+  // Only needed if your API key covers several workspaces (Console → Settings → Workspaces shows the ID).
+  ANTHROPIC_WORKSPACE_ID: z.string().optional(),
 
   FAL_KEY: z.string().min(1),
   FAL_IMAGE_MODEL: z.string().default("fal-ai/flux-pro/kontext"),

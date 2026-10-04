@@ -23,13 +23,33 @@ export const defaultContent = (): ContentSettings => ({
   postAboutBurns: true,
 });
 
-function TagInput({ value, onChange, max, placeholder, prefix = "" }: { value: string[]; onChange: (v: string[]) => void; max: number; placeholder: string; prefix?: string }) {
+function TagInput({
+  value,
+  onChange,
+  max,
+  placeholder,
+  prefix = "",
+  maxLen = 60,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  max: number;
+  placeholder: string;
+  prefix?: string;
+  maxLen?: number;
+}) {
   const [draft, setDraft] = useState("");
-  const add = () => {
-    const t = draft.trim().replace(/^#/, "");
-    if (t && !value.includes(t) && value.length < max) onChange([...value, t]);
+  /** Adds one or more tags (a pasted list is split on new lines and commas), skipping duplicates. */
+  const addMany = (text: string) => {
+    const next = [...value];
+    for (const raw of text.split(/[\n\r,]+/)) {
+      const t = raw.trim().replace(/^#/, "").slice(0, maxLen).trim();
+      if (t && !next.includes(t) && next.length < max) next.push(t);
+    }
+    if (next.length !== value.length) onChange(next);
     setDraft("");
   };
+  const add = () => addMany(draft);
   return (
     <div className="tags">
       {value.map((t) => (
@@ -43,7 +63,15 @@ function TagInput({ value, onChange, max, placeholder, prefix = "" }: { value: s
           className="tag-input"
           value={draft}
           placeholder={placeholder}
+          maxLength={maxLen}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text");
+            if (/[\n\r,]/.test(text)) {
+              e.preventDefault();
+              addMany(draft + text);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
@@ -93,7 +121,7 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
         <Field label="Voice" hint="Optional. How it talks: emoji use, slang, sentence length.">
           <textarea className="input" rows={4} maxLength={400} value={value.voice} onChange={(e) => set("voice", e.target.value)} />
         </Field>
-        <Field label="Recurring themes" hint="Up to 10. Press Enter after each.">
+        <Field label="Recurring themes" hint="Up to 10, each up to 60 characters. Press Enter after each, or paste a list.">
           <TagInput value={value.themes} onChange={(v) => set("themes", v)} max={10} placeholder="space, naps, jazz" />
         </Field>
         <Field label="Never post about" hint="Optional. Topics the character must avoid.">
@@ -155,7 +183,7 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
           </Field>
         )}
         <Field label="Hashtags on every post" hint="Up to 8. Your ticker is always added.">
-          <TagInput value={value.hashtags} onChange={(v) => set("hashtags", v)} max={8} placeholder="memecoin" prefix="#" />
+          <TagInput value={value.hashtags} onChange={(v) => set("hashtags", v)} max={8} placeholder="memecoin" prefix="#" maxLen={40} />
         </Field>
       </div>
       <label className="switch">

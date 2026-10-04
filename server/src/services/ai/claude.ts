@@ -11,13 +11,19 @@ export async function structured<T>(opts: {
   schema: Record<string, unknown>;
   maxTokens?: number;
 }): Promise<T> {
+  // Authorization: Bearer is the current, preferred header and works for every key type
+  // (personal sk-ant-usr-… keys, service account keys, and legacy workspace keys).
+  // Keys that cover several workspaces also need the workspace ID on every request.
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    authorization: `Bearer ${config.ANTHROPIC_API_KEY.trim()}`,
+    "anthropic-version": "2023-06-01",
+  };
+  if (config.ANTHROPIC_WORKSPACE_ID) headers["anthropic-workspace-id"] = config.ANTHROPIC_WORKSPACE_ID.trim();
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": config.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
+    headers,
     body: JSON.stringify({
       model: config.ANTHROPIC_MODEL,
       max_tokens: opts.maxTokens ?? 2000,
