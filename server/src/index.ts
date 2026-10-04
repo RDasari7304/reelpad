@@ -93,9 +93,15 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 // Serve the built frontend (single-page app).
 const webDist = join(dirname(fileURLToPath(import.meta.url)), "../../web/dist");
 if (existsSync(webDist)) {
-  app.use("/assets", express.static(join(webDist, "assets"), { immutable: true, maxAge: "1y" }));
+  // Hashed build files. A missing one is a real 404 (never the HTML page), so a browser holding an old page
+  // after a deploy gets a clear error and reloads, instead of trying to run HTML as JavaScript.
+  app.use("/assets", express.static(join(webDist, "assets"), { immutable: true, maxAge: "1y", fallthrough: false }));
   app.use(express.static(webDist, { index: false, maxAge: isProd ? "1h" : 0 }));
-  app.get("*", (_req, res) => res.sendFile(join(webDist, "index.html")));
+  // The page itself is never cached, so every visit picks up the latest build.
+  app.get("*", (_req, res) => {
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(join(webDist, "index.html"));
+  });
 }
 
 app.use(errorHandler);

@@ -1922,3 +1922,13 @@ textarea.input {
 @media (max-width: 600px) {
   .chart-frame { height: 70vh; min-height: 380px; }
 }
+
+.crash-detail {
+  white-space: pre-wrap;
+  background: var(--print);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: 0.85rem var(--mono);
+  color: var(--error);
+}
