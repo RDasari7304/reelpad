@@ -29,7 +29,7 @@ import { asyncHandler, HttpError } from "./util.js";
 export const coinsRouter = Router();
 
 /** How many "Make a post now" posts a coin can make per 24 hours, on top of its schedule. */
-const MANUAL_POSTS_PER_DAY = 5;
+const MANUAL_POSTS_PER_DAY = 10;
 
 const upload = multer({
   storage: multer.memoryStorage(),
