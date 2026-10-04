@@ -69,13 +69,14 @@ instagramRouter.get(
       if (taken) return fail("That Instagram account is already the influencer for another coin");
 
       await query(
-        `INSERT INTO instagram_accounts(coin_id, ig_user_id, username, account_type, profile_picture_url, token_enc, token_expires_at, status, connected_at, last_refreshed_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'active',now(),now())
+        `INSERT INTO instagram_accounts(coin_id, ig_user_id, username, account_type, profile_picture_url, token_enc, token_expires_at, status, connected_at, last_refreshed_at, scopes, comments_error)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'active',now(),now(),$8,NULL)
          ON CONFLICT (coin_id) DO UPDATE SET ig_user_id = EXCLUDED.ig_user_id, username = EXCLUDED.username,
            account_type = EXCLUDED.account_type, profile_picture_url = EXCLUDED.profile_picture_url,
            token_enc = EXCLUDED.token_enc, token_expires_at = EXCLUDED.token_expires_at, status = 'active',
-           connected_at = now(), last_refreshed_at = now()`,
-        [coin.id, me.igUserId, me.username, me.accountType, me.picture, seal(token), expiresAt],
+           connected_at = now(), last_refreshed_at = now(), scopes = EXCLUDED.scopes, comments_error = NULL`,
+        // Which permissions were granted: comment replies only run when comment management was allowed.
+        [coin.id, me.igUserId, me.username, me.accountType, me.picture, seal(token), expiresAt, permissions.filter(Boolean)],
       );
       await query(`UPDATE instagram_access_requests SET status = 'connected' WHERE coin_id = $1`, [coin.id]);
       const hasPosts = await one(`SELECT 1 FROM posts WHERE coin_id = $1 AND status <> 'rejected' LIMIT 1`, [coin.id]);

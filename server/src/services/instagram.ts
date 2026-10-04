@@ -7,7 +7,8 @@ import { PermanentError } from "../db/jobs.js";
  */
 const GRAPH = `https://graph.instagram.com`;
 const V = () => `${GRAPH}/${config.IG_API_VERSION}`;
-export const IG_SCOPES = ["instagram_business_basic", "instagram_business_content_publish"];
+export const IG_SCOPES = ["instagram_business_basic", "instagram_business_content_publish", "instagram_business_manage_comments"];
+export const COMMENTS_SCOPE = "instagram_business_manage_comments";
 export const redirectUri = () => `${config.PUBLIC_URL.replace(/\/$/, "")}/api/instagram/callback`;
 
 export class InstagramError extends Error {
@@ -17,6 +18,18 @@ export class InstagramError extends Error {
   /** Token invalid/expired/revoked: retrying won't help until the creator reconnects. */
   get isAuth() {
     return this.code === 190 || this.status === 401;
+  }
+  /** The app or account lacks a permission (e.g. comment management wasn't granted). */
+  get isPermission() {
+    return this.code === 10 || this.code === 200 || this.code === 3 || (this.code !== undefined && this.code >= 200 && this.code <= 299);
+  }
+  /** Instagram's rate limits: stop and try again later. */
+  get isRateLimit() {
+    return [4, 17, 32, 613].includes(this.code ?? -1) || this.status === 429;
+  }
+  /** The comment or post no longer exists, or can't be replied to (deleted, hidden, restricted). */
+  get isGone() {
+    return this.code === 100 || this.status === 404;
   }
 }
 
@@ -197,4 +210,47 @@ export async function publish(input: PublishInput, onContainer?: (id: string) =>
   const mediaId = await publishContainer(igUserId, token, containerId);
   const permalink = await getPermalink(mediaId, token);
   return { containerId, mediaId, permalink };
+}
+
+// ---------- comments ----------
+
+export interface IgComment {
+  id: string;
+  text: string;
+  username: string;
+  timestamp: string;
+  like_count?: number;
+  replies?: { data: Array<Omit<IgComment, "replies">> };
+}
+
+/** Comment counts for the account's recent media (one call), to fetch comments only where something changed. */
+export async function mediaCommentCounts(igUserId: string, token: string): Promise<Map<string, number>> {
+  const u = new URL(`${V()}/${igUserId}/media`);
+  u.searchParams.set("fields", "id,comments_count");
+  u.searchParams.set("limit", "50");
+  u.searchParams.set("access_token", token);
+  const json = await igFetch<{ data: Array<{ id: string; comments_count?: number }> }>(u.toString());
+  return new Map(json.data.map((m) => [m.id, m.comments_count ?? 0]));
+}
+
+/** Every comment on a post with its replies (Instagram threads are one level deep). Up to 4 pages of 50. */
+export async function listComments(mediaId: string, token: string): Promise<IgComment[]> {
+  const out: IgComment[] = [];
+  const u = new URL(`${V()}/${mediaId}/comments`);
+  u.searchParams.set("fields", "id,text,username,timestamp,like_count,replies.limit(50){id,text,username,timestamp,like_count}");
+  u.searchParams.set("limit", "50");
+  u.searchParams.set("access_token", token);
+  let next: string | undefined = u.toString();
+  for (let page = 0; next && page < 4; page++) {
+    const json: { data: IgComment[]; paging?: { next?: string } } = await igFetch(next);
+    out.push(...json.data);
+    next = json.paging?.next;
+  }
+  return out;
+}
+
+/** Posts a reply under a top-level comment. Returns the new comment's id. */
+export async function replyToComment(commentId: string, message: string, token: string): Promise<string> {
+  const json = await igFetch<{ id: string }>(`${V()}/${commentId}/replies`, form({ message, access_token: token }));
+  return json.id;
 }

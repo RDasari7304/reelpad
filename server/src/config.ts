@@ -80,6 +80,9 @@ const schema = z.object({
   COST_LLM_USD: num(0.02),
   DAILY_AI_BUDGET_USD: num(50),
 
+  COMMENT_SYNC_MIN: num(5), // how often each coin's comments are checked
+  COMMENT_REPLIES_PER_HOUR: num(12), // per coin, so replies trickle out like a person's
+  COMMENT_BATCH: num(8), // comments answered per Claude call
   ROOM_MAX_CONVERSATIONS: num(3), // conversations running at once in the Room (only while someone is watching)
   CONTENT_MIN_POSTS_PER_DAY: num(12), // every coin posts at least this often
   CONTENT_MAX_POSTS_PER_DAY: num(24), // most posts a creator can schedule per day (Instagram allows 100 per 24h)

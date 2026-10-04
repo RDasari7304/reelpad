@@ -4,13 +4,14 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, type Coin, type ContentSettings, type Post, type TreasuryView } from "../api";
 import { Address, NextPostCountdown, Notice } from "../components";
 import { ContentEditor, PersonaSummary } from "../editors";
+import { CommentsTab } from "../CommentsTab";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { InstagramConnect } from "../InstagramConnect";
 import { DexScreenerChart } from "../DexScreenerChart";
 import { PriceChart } from "../PriceChart";
 import { useSession } from "../session";
 
-type Tab = "chart" | "posts" | "treasury" | "settings";
+type Tab = "chart" | "posts" | "comments" | "treasury" | "settings";
 
 const STATUS_LABEL: Record<string, string> = {
   generating: "Making it",
@@ -471,9 +472,9 @@ export default function CoinPage() {
       {owner && coin.status === "live" && !igActive && <InstagramConnect coin={coin} launched={launched} onChange={setCoin} />}
 
       <nav className="tabs" role="tablist">
-        {(["posts", ...(hasChart ? ["chart"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
+        {(["posts", ...(igActive || owner ? ["comments"] : []), ...(hasChart ? ["chart"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={shown === t} className={shown === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
-            {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "treasury" ? "Treasury" : "Settings"}
+            {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "comments" ? "Comments" : t === "treasury" ? "Treasury" : "Settings"}
           </button>
         ))}
         {owner && igActive && coin.status === "live" && shown === "posts" && (
@@ -489,6 +490,7 @@ export default function CoinPage() {
           <ChartTab coinKey={coin.mint!} symbol={coin.symbol} mint={coin.mint!} />
         </ErrorBoundary>
       )}
+      {shown === "comments" && <CommentsTab coin={coin} owner={owner} onSettings={() => setTab("settings")} />}
       {shown === "posts" &&
         (posts.length === 0 ? (
           <p className="empty-line">

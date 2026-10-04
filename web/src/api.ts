@@ -44,6 +44,8 @@ export interface ContentSettings {
   autoPublish: boolean;
   hashtags: string[];
   postAboutBurns?: boolean;
+  commentReplies?: boolean;
+  commentRepliesPerDay?: number;
 }
 
 export interface Coin {
@@ -67,7 +69,13 @@ export interface Coin {
   treasuryPaused: boolean;
   nextPostAt: string | null;
   launchedAt: string | null;
-  instagram?: { username: string; status?: string; picture?: string | null } | null;
+  instagram?: {
+    username: string;
+    status?: string;
+    picture?: string | null;
+    commentsEnabled?: boolean;
+    commentsError?: string | null;
+  } | null;
   instagramAccess?: InstagramAccess | null;
   lastImage?: string | null;
   postCount?: number;
@@ -111,6 +119,26 @@ export interface FeedPost {
   permalink: string | null;
   publishedAt: string;
   coin: { id: string; name: string; symbol: string; mint: string | null; imageUrl: string; instagram: string };
+}
+
+export interface CommentView {
+  id: string;
+  username: string;
+  text: string;
+  likeCount: number;
+  at: string;
+  isOwn: boolean;
+  status?: "new" | "replied" | "skipped" | "failed" | "own";
+  action?: "reply" | "react" | "skip" | null;
+  reason?: string | null;
+}
+export interface CommentThread extends CommentView {
+  post: { id: string | null; permalink: string | null; thumb: string | null };
+  replies: CommentView[];
+}
+export interface CommentsResponse {
+  threads: CommentThread[];
+  stats: { today: number; waiting: number; total: number } | null;
 }
 
 export interface TreasuryView {

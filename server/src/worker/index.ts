@@ -13,6 +13,7 @@ import {
   scheduleDuePosts,
 } from "../services/content.js";
 import { refreshExpiringTokens } from "../services/instagramRefresh.js";
+import { respondToComments, scheduleCommentSyncs, syncComments } from "../services/comments.js";
 import { converse, scheduleRoom } from "../services/room.js";
 import { runTreasury, scheduleTreasuryRuns } from "../services/treasury.js";
 
@@ -34,6 +35,10 @@ async function handle(job: Job) {
       return refreshExpiringTokens();
     case "room.converse":
       return converse();
+    case "comments.sync":
+      return syncComments(job.payload.coinId);
+    case "comments.respond":
+      return respondToComments(job.payload.coinId);
     default:
       throw new PermanentError(`Unknown job type ${job.type}`);
   }
@@ -85,6 +90,7 @@ async function ticker() {
     await scheduleDuePosts();
     await scheduleTreasuryRuns();
     await scheduleRoom().catch((e) => logger.warn({ err: (e as Error).message }, "room schedule failed"));
+    await scheduleCommentSyncs().catch((e) => logger.warn({ err: (e as Error).message }, "comment schedule failed"));
     if (tick % 60 === 0) await refreshExpiringTokens();
     if (tick % 1440 === 0) await pruneOldJobs();
   } catch (e) {

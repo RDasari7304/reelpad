@@ -10,6 +10,7 @@ import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { applyTier, TIERS } from "../src/domain/tiers.ts";
 import { imageInput } from "../src/domain/images.ts";
+import { cleanReaction, cleanReply, humanDelayMinutes, replyBudget, replyTargetId, replyViolations, selectForReply, spamReason, type StoredComment } from "../src/domain/comments.ts";
 import { buyAttempts, friendlyTradeError, isSlippageError } from "../src/domain/tradeErrors.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
@@ -413,5 +414,76 @@ describe("buyback errors", () => {
     assert.deepEqual(a.map((x) => x.sol), [0.5, 0.5, 0.25, 0.125]);
     assert.equal(a[1]!.slippage, 30);
     assert.equal(buyAttempts(0.012, 15).length, 3);
+  });
+});
+
+describe("comment replies", () => {
+  const now = new Date("2026-10-04T12:00:00Z");
+  const mk = (p: Partial<StoredComment> & { id: string }): StoredComment => ({
+    parentId: null, mediaId: "m1", username: "fan", text: "love this", timestamp: new Date(now.getTime() - 60 * 60_000),
+    likeCount: 0, isOwn: false, status: "new", ...p,
+  });
+
+  it("spots spam and scams for free", () => {
+    assert.ok(spamReason("dm me for promo"));
+    assert.ok(spamReason("claim your free sol airdrop now"));
+    assert.ok(spamReason("check www.scam.xyz"));
+    assert.ok(spamReason("send to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"));
+    assert.equal(spamReason("this goldfish has more conviction than me 😂"), null);
+    assert.equal(spamReason("🔥🔥🔥"), null);
+  });
+
+  it("cleans replies: no links, hashtags or extra tags, one emoji, mention when in a thread", () => {
+    const r = cleanReply('"@fan haha yes 😂😂 #moon visit https://x.com and ask @other"', { username: "fan", mention: true });
+    assert.equal(r.startsWith("@fan "), true);
+    assert.ok(!r.includes("#moon") && !r.includes("https") && !r.includes("@other"));
+    assert.equal((r.match(/😂/g) ?? []).length, 1);
+    assert.equal(cleanReply("hey there", { username: "fan", mention: false }), "hey there");
+    assert.ok(cleanReply("a ".repeat(400), { username: "fan", mention: false }).length <= 300);
+    assert.equal(cleanReaction("🔥 nice"), "🔥");
+    assert.equal(cleanReaction("lol"), "❤️");
+  });
+
+  it("blocks unsafe replies", () => {
+    assert.ok(replyViolations("buy now before it moons").length > 0);
+    assert.ok(replyViolations("DM me and I'll explain").length > 0);
+    assert.ok(replyViolations("as an AI language model I can't").length > 0);
+    assert.ok(replyViolations("price will 10x soon").length > 0);
+    assert.deepEqual(replyViolations("the goldfish says hi back"), []);
+  });
+
+  it("answers top-level comments and talk-backs, not fan-to-fan chatter", () => {
+    const all = [
+      mk({ id: "c1", text: "what do you trade?" }),
+      mk({ id: "c2", username: "b", text: "nice", likeCount: 10 }),
+      mk({ id: "r1", parentId: "c2", username: "c", text: "agreed" }), // fan to fan, influencer not in thread
+      mk({ id: "c3", username: "d", text: "hi" }),
+      mk({ id: "o1", parentId: "c3", username: "me", isOwn: true, status: "own", text: "hey d", timestamp: new Date(now.getTime() - 50 * 60_000) }),
+      mk({ id: "r2", parentId: "c3", username: "d", text: "you replied!", timestamp: new Date(now.getTime() - 40 * 60_000) }),
+      mk({ id: "c4", username: "e", text: "too fresh", timestamp: new Date(now.getTime() - 60_000) }),
+      mk({ id: "c5", username: "f", text: "old", timestamp: new Date(now.getTime() - 80 * 3600_000) }),
+    ];
+    const s = selectForReply(all, now, { batch: 10, repliedTodayByUser: new Map() });
+    const ids = s.reply.map((c) => c.id);
+    assert.equal(ids[0], "r2"); // conversation first
+    assert.ok(ids.includes("c1") && ids.includes("c2"));
+    assert.ok(!ids.includes("r1") && !ids.includes("c4") && !ids.includes("c3"));
+    assert.ok(s.skip.some((x) => x.comment.id === "c5"));
+    assert.ok(s.skip.some((x) => x.comment.id === "c3")); // already answered
+  });
+
+  it("caps replies per person and per hour/day", () => {
+    const all = [mk({ id: "a1", username: "x" }), mk({ id: "a2", username: "x" }), mk({ id: "a3", username: "x" }), mk({ id: "a4", username: "x" })];
+    const s = selectForReply(all, now, { batch: 10, repliedTodayByUser: new Map([["x", 1]]) });
+    assert.equal(s.reply.length, 2);
+    assert.equal(replyBudget({ hour: 3, day: 10 }, { perHour: 12, perDay: 40 }), 9);
+    assert.equal(replyBudget({ hour: 0, day: 40 }, { perHour: 12, perDay: 40 }), 0);
+  });
+
+  it("replies inside the top-level thread and waits a human-ish delay", () => {
+    assert.equal(replyTargetId({ id: "r", parentId: "c" }), "c");
+    assert.equal(replyTargetId({ id: "c", parentId: null }), "c");
+    const d = humanDelayMinutes("17890000000000001");
+    assert.ok(d >= 2 && d <= 12);
   });
 });

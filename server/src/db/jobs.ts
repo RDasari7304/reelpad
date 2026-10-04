@@ -11,7 +11,9 @@ export type JobType =
   | "treasury.run"
   | "instagram.refresh"
   | "launch.confirm"
-  | "room.converse";
+  | "room.converse"
+  | "comments.sync"
+  | "comments.respond";
 
 export interface Job {
   id: string;

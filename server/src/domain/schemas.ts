@@ -41,6 +41,9 @@ export const contentSettingsSchema = z.object({
   hashtags: z.array(z.string().regex(/^[\p{L}\p{N}_]{1,40}$/u, "Hashtags: letters, numbers, underscores")).max(8).default([]),
   // Post (at most once a day) when the treasury buys back and burns the coin.
   postAboutBurns: z.boolean().default(true),
+  // The influencer answers comments on its posts in character.
+  commentReplies: z.boolean().default(true),
+  commentRepliesPerDay: z.number().int().min(5).max(150).default(40),
 });
 
 const optionalUrl = z

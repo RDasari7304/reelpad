@@ -13,6 +13,8 @@ import {
 } from "../domain/schemas.js";
 import { isTimeframe } from "../domain/chart.js";
 import { getChart } from "../services/chart.js";
+import { commentStats, commentThreads } from "../services/comments.js";
+import { COMMENTS_SCOPE } from "../services/instagram.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
 import { upsertAccessRequest } from "../services/instagramAccess.js";
 import { createDraft, prepareLaunch, submitLaunch } from "../services/launch.js";
@@ -46,8 +48,8 @@ async function ownedCoin(id: string, wallet: string | undefined): Promise<CoinRo
 }
 
 async function instagramSummary(coinId: string) {
-  return one<{ username: string; status: string; profile_picture_url: string | null }>(
-    `SELECT username, status, profile_picture_url FROM instagram_accounts WHERE coin_id = $1`,
+  return one<{ username: string; status: string; profile_picture_url: string | null; scopes: string[]; comments_error: string | null }>(
+    `SELECT username, status, profile_picture_url, scopes, comments_error FROM instagram_accounts WHERE coin_id = $1`,
     [coinId],
   );
 }
@@ -121,7 +123,13 @@ coinsRouter.get(
         // the owner still learns about an expired connection so they can log in again.
         instagram:
           ig?.status === "active"
-            ? { username: ig.username, status: ig.status, picture: ig.profile_picture_url }
+            ? {
+                username: ig.username,
+                status: ig.status,
+                picture: ig.profile_picture_url,
+                commentsEnabled: (ig.scopes ?? []).includes(COMMENTS_SCOPE),
+                ...(isOwner ? { commentsError: ig.comments_error } : {}),
+              }
             : ig?.status === "expired" && isOwner
               ? { username: ig.username, status: ig.status, picture: null }
               : null,
@@ -314,6 +322,56 @@ coinsRouter.put(
       throw new HttpError(400, `This coin launched with @${current.username} as its website, so that's the account it uses.`);
     }
     res.json({ instagramAccess: await upsertAccessRequest(coin.id, username) });
+  }),
+);
+
+// ---- comments ----
+
+/** The influencer's comment threads (public: comments and replies are public on Instagram too). */
+coinsRouter.get(
+  "/:key/comments",
+  asyncHandler(async (req, res) => {
+    const coin = await getCoinByIdOrMint(String(req.params.key));
+    if (!coin || coin.status !== "live") throw new HttpError(404, "Coin not found");
+    const owner = coin.creator_wallet === req.wallet;
+    const limit = Math.min(Number(req.query.limit ?? 40) || 40, 100);
+    const [threads, stats] = await Promise.all([commentThreads(coin.id, { owner, limit }), owner ? commentStats(coin.id) : null]);
+    res.json({ threads, stats });
+  }),
+);
+
+/** Owner: check for new comments and answer now (within the usual limits). */
+coinsRouter.post(
+  "/:id/comments/check",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const coin = await ownedCoin(String(req.params.id), req.wallet);
+    await query(`UPDATE coins SET last_comment_sync_at = NULL WHERE id = $1`, [coin.id]);
+    const queued = await enqueue("comments.sync", { coinId: coin.id }, { dedupeKey: `csync:${coin.id}`, maxAttempts: 1 });
+    res.json({ queued });
+  }),
+);
+
+/** Owner: don't answer this comment / try answering it again. */
+coinsRouter.post(
+  "/:id/comments/:commentId/:action(skip|retry)",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const coin = await ownedCoin(String(req.params.id), req.wallet);
+    const commentId = String(req.params.commentId);
+    if (req.params.action === "skip") {
+      await query(
+        `UPDATE ig_comments SET status = 'skipped', action = 'skip', reason = 'skipped by the creator' WHERE id = $1 AND coin_id = $2 AND status IN ('new','failed')`,
+        [commentId, coin.id],
+      );
+    } else {
+      await query(
+        `UPDATE ig_comments SET status = 'new', attempts = 0, reason = NULL WHERE id = $1 AND coin_id = $2 AND status IN ('skipped','failed') AND NOT is_own`,
+        [commentId, coin.id],
+      );
+      await enqueue("comments.respond", { coinId: coin.id }, { dedupeKey: `respond:${coin.id}`, maxAttempts: 2 });
+    }
+    res.json({ ok: true });
   }),
 );
 

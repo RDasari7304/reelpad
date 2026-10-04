@@ -2691,3 +2691,117 @@ textarea.input {
   }
   .site-nav::-webkit-scrollbar { display: none; }
 }
+
+/* ── Comments tab ── */
+.comments-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cm-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.cm-stats strong {
+  color: var(--ink);
+}
+.cm-stats .btn {
+  margin-left: auto;
+}
+.cm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cm-thread {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  background: var(--print);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-print);
+}
+.cm-thumb img {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+.cm-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cm-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.cm-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+.cm-initial {
+  display: grid;
+  place-items: center;
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  font-weight: 700;
+  font-size: 13px;
+}
+.cm-line.own .cm-avatar {
+  border: 2px solid var(--violet);
+}
+.cm-body p {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.cm-body small {
+  font-size: 12px;
+}
+.cm-line.own .cm-body p strong {
+  color: var(--violet-deep);
+}
+.cm-replies {
+  margin-left: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+}
+.cm-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--paper);
+}
+.cm-status.failed {
+  background: var(--error-wash);
+  color: var(--error);
+}
+.cm-status.new {
+  background: var(--violet-wash);
+  color: var(--violet-deep);
+}
+@media (max-width: 600px) {
+  .cm-thumb { display: none; }
+  .cm-replies { margin-left: 20px; }
+}

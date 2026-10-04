@@ -21,6 +21,8 @@ export const defaultContent = (): ContentSettings => ({
   autoPublish: true,
   hashtags: [],
   postAboutBurns: true,
+  commentReplies: true,
+  commentRepliesPerDay: 40,
 });
 
 function TagInput({
@@ -216,6 +218,37 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
           <small>At most once a day, the character posts about the latest buyback and burn, using the real numbers.</small>
         </span>
       </label>
+      <label className="switch">
+        <input
+          type="checkbox"
+          checked={value.commentReplies !== false}
+          onChange={(e) => set("commentReplies", e.target.checked)}
+        />
+        <span>
+          <strong>Reply to comments</strong>
+          <small>
+            The character reads comments on its posts and answers in its own voice: real answers to questions, jokes back,
+            a quick emoji for simple hype. Spam, scams and trolls are skipped.
+          </small>
+        </span>
+      </label>
+      {value.commentReplies !== false && (
+        <div className="grid-2">
+          <Field label="Comment replies per day, at most" hint="Replies go out gradually, at most a dozen an hour.">
+            <select
+              className="input"
+              value={value.commentRepliesPerDay ?? 40}
+              onChange={(e) => set("commentRepliesPerDay", Number(e.target.value))}
+            >
+              {[10, 20, 40, 60, 100, 150].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      )}
     </div>
   );
 }
