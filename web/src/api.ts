@@ -130,6 +130,7 @@ export interface AppConfig {
   treasuryDryRun: boolean;
   igAccessMode: "testers" | "open";
   limits: { minPostsPerDay: number; maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
+  reels?: { seconds: number; audio: boolean };
   catalog: {
     personalities: Record<string, string>;
     visualStyles: Record<string, string>;

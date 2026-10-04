@@ -81,16 +81,18 @@ async function burnAll(coin: CoinRow, reason: string, expectTokens = false) {
   const mint = new PublicKey(coin.mint!);
   let bal = await getTokenBalance(agent.publicKey, mint);
   // Right after a buy the RPC can briefly report the old balance; give it a few seconds.
-  for (let i = 0; expectTokens && bal.raw === 0n && i < 5; i++) {
-    await sleep(2000);
+  for (let i = 0; expectTokens && bal.raw === 0n && i < 8; i++) {
+    await sleep(2500);
     bal = await getTokenBalance(agent.publicKey, mint);
   }
-  if (bal.raw === 0n || !bal.account) return null;
+  if (bal.raw === 0n || bal.accounts.length === 0) return null;
   const mintInfo = await connection.getAccountInfo(mint, "confirmed");
   if (!mintInfo) throw new Error("Mint account not found");
-  const tx = new Transaction().add(
-    createBurnCheckedInstruction(bal.account, mint, agent.publicKey, bal.raw, bal.decimals, [], mintInfo.owner),
-  );
+  // Burn from every token account the agent holds (normally one), using the mint's own token program.
+  const tx = new Transaction();
+  for (const a of bal.accounts) {
+    tx.add(createBurnCheckedInstruction(a.pubkey, mint, agent.publicKey, a.raw, bal.decimals, [], mintInfo.owner));
+  }
   try {
     const sig = await signAndSendLegacy(tx, [agent]);
     await record(coin.id, { kind: "burn", status: "done", tokens: bal.ui.toString(), sig, reason });
@@ -144,17 +146,19 @@ export async function runTreasury(coinId: string) {
   );
 
   const agent = openKeypair(coin.agent_secret_enc);
+  // Simulated buys never count against live limits.
+  const counted = dryRun ? ["done", "simulated"] : ["done"];
   const [balance, spent, lastBuy] = await Promise.all([
     getSolBalance(agent.publicKey),
     one<{ s: string | null }>(
       `SELECT sum(sol_amount)::text AS s FROM treasury_actions
-       WHERE coin_id = $1 AND kind = 'buy' AND status IN ('done','simulated') AND created_at > now() - interval '24 hours'`,
-      [coinId],
+       WHERE coin_id = $1 AND kind = 'buy' AND status = ANY($2) AND created_at > now() - interval '24 hours'`,
+      [coinId, counted],
     ),
     one<{ created_at: Date }>(
-      `SELECT created_at FROM treasury_actions WHERE coin_id = $1 AND kind = 'buy' AND status IN ('done','simulated')
+      `SELECT created_at FROM treasury_actions WHERE coin_id = $1 AND kind = 'buy' AND status = ANY($2)
        ORDER BY created_at DESC LIMIT 1`,
-      [coinId],
+      [coinId, counted],
     ),
   ]);
 

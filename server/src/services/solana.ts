@@ -62,14 +62,17 @@ export async function getTokenBalance(owner: PublicKey, mint: PublicKey) {
   let raw = 0n;
   let decimals = 6;
   let account: PublicKey | null = null;
+  const accounts: Array<{ pubkey: PublicKey; raw: bigint }> = [];
   for (const acc of res.value) {
     const info = (acc.account.data as any).parsed?.info?.tokenAmount;
     if (!info) continue;
-    raw += BigInt(info.amount);
+    const amount = BigInt(info.amount);
+    raw += amount;
     decimals = info.decimals;
     account ??= acc.pubkey;
+    if (amount > 0n) accounts.push({ pubkey: acc.pubkey, raw: amount });
   }
-  return { raw, decimals, ui: Number(raw) / 10 ** decimals, account };
+  return { raw, decimals, ui: Number(raw) / 10 ** decimals, account, accounts };
 }
 
 export function bondingCurvePda(mint: PublicKey): PublicKey {

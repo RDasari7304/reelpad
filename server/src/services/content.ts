@@ -2,12 +2,13 @@ import { config } from "../config.js";
 import { enqueue, PermanentError } from "../db/jobs.js";
 import { one, query } from "../db/pool.js";
 import { captionViolations, finalizeCaption } from "../domain/caption.js";
-import { CONTENT_RULES, personaBrief, visualStyleText } from "../domain/persona.js";
+import { CONTENT_RULES, personaBrief, personalityText, visualStyleText } from "../domain/persona.js";
+import { cleanSpokenLine, maxSpokenWords, reelVideoPrompt, speakingVoice } from "../domain/reel.js";
 import { chooseFormat, firstPostFormat, nextPostAt, type Format } from "../domain/schedule.js";
 import { captionOpener, pickVariety, type Variety } from "../domain/variety.js";
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
-import { generateImage, generateVideo } from "./ai/fal.js";
+import { generateImage, generateVideo, reelSeconds, reelsHaveAudio } from "./ai/fal.js";
 import { getCoin, getInstagram, markInstagramExpired, type CoinRow } from "./coins.js";
 import { containerStatus, InstagramError, publish } from "./instagram.js";
 import { rehostImageForInstagram, rehostVideo } from "./media.js";
@@ -20,6 +21,10 @@ interface PostPlan {
   hashtags: string[];
   image_prompts: string[];
   video_prompt?: string;
+  /** Reels: the one line the character says out loud on camera. */
+  spoken_line?: string;
+  /** Reels: the sound effects and ambience heard in the clip. */
+  sound?: string;
   setting: string;
   /** The character's own memory of this post: what happened and how it felt. Fed into later posts. */
   memory: string;
@@ -45,7 +50,17 @@ const PLAN_SCHEMA = {
     },
     video_prompt: {
       type: "string",
-      description: "For reels: the motion/camera direction for a 5-second clip. For other formats, an empty string.",
+      description: "For reels: the motion/camera direction for the clip. For other formats, an empty string.",
+    },
+    spoken_line: {
+      type: "string",
+      description:
+        "For reels: the exact words you say out loud to the camera, in English, in your voice. Short enough to say in the clip. No stage directions, emoji or hashtags. For other formats, an empty string.",
+    },
+    sound: {
+      type: "string",
+      description:
+        "For reels: the sound effects and ambience heard in the clip (e.g. 'rain on a tin roof, distant traffic'). No music with lyrics. For other formats, an empty string.",
     },
     setting: {
       type: "string",
@@ -61,7 +76,7 @@ const PLAN_SCHEMA = {
       description: "Something you're looking forward to, planning, or left unresolved, which a future post could pick up. One sentence.",
     },
   },
-  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt", "setting", "memory", "mood", "next_thread"],
+  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt", "spoken_line", "sound", "setting", "memory", "mood", "next_thread"],
   additionalProperties: false,
 };
 
@@ -71,8 +86,13 @@ function formatInstructions(format: Format) {
       return "Format: single image post. Provide exactly 1 image prompt.";
     case "carousel":
       return "Format: carousel. Provide 3 to 5 image prompts that tell a short visual story in order.";
-    case "reel":
-      return "Format: 5-second vertical Reel. Provide exactly 1 image prompt for the opening keyframe (vertical 9:16 composition) and a video_prompt describing the motion.";
+    case "reel": {
+      const secs = reelSeconds();
+      const base = `Format: ${secs}-second vertical Reel. Provide exactly 1 image prompt for the opening keyframe (vertical 9:16 composition, the character facing the camera) and a video_prompt describing the motion.`;
+      return reelsHaveAudio()
+        ? `${base} The Reel has sound and you talk in it: write a spoken_line you say straight to the camera (at most ${maxSpokenWords(secs)} words, spoken English, natural and in character; it should add something the caption doesn't, not read the caption out) and a sound line for the ambience and sound effects.`
+        : `${base} The Reel is silent: leave spoken_line and sound empty.`;
+    }
   }
 }
 
@@ -214,6 +234,8 @@ async function planWithClaude(coin: CoinRow, format: Format, note?: string): Pro
     plan.hashtags = Array.isArray(plan.hashtags) ? plan.hashtags.map(String) : [];
     plan.image_prompts = Array.isArray(plan.image_prompts) ? plan.image_prompts.map(String).filter(Boolean) : [];
     plan.setting = String(plan.setting ?? "").trim();
+    plan.spoken_line = format === "reel" && reelsHaveAudio() ? cleanSpokenLine(plan.spoken_line ?? "", reelSeconds()) : "";
+    plan.sound = format === "reel" ? String(plan.sound ?? "").trim().slice(0, 200) : "";
     plan.variety = variety;
     const violations = captionViolations(plan.caption);
     if (violations.length === 0 && plan.caption && plan.image_prompts.length) return plan;
@@ -318,7 +340,7 @@ export async function generatePost(postId: string) {
   const style = visualStyleText(coin.persona);
   const prompts = post.plan.image_prompts.slice(0, post.format === "carousel" ? 5 : 1);
   if (post.format === "carousel" && prompts.length < 2) throw new PermanentError("Carousel plan has fewer than 2 images");
-  const cost = prompts.length * config.COST_IMAGE_USD + (post.format === "reel" ? config.COST_VIDEO_USD : 0);
+  const cost = prompts.length * config.COST_IMAGE_USD + (post.format === "reel" ? config.COST_REEL_USD : 0);
   if (!(await reserveSpend(cost))) throw new Error("Daily AI budget reached");
 
   // The reference image keeps the character recognisable; everything else must be new, or every post looks the same.
@@ -340,12 +362,21 @@ export async function generatePost(postId: string) {
     await setProgress(postId, 22, "Drawing the opening frame");
     const keyframe = await generateImage(fullPrompt(prompts[0]!), coin.image_url, "9:16");
     const cover = await rehostImageForInstagram(keyframe, coin.id, "9:16");
-    await setProgress(postId, 35, "Animating the Reel");
+    const audio = reelsHaveAudio();
+    const stage = audio && post.plan.spoken_line ? "Filming the Reel: voice, lip sync and sound" : audio ? "Filming the Reel with sound" : "Animating the Reel";
+    await setProgress(postId, 35, stage);
     // Video takes a few minutes; progress moves from 35% to 85% as it renders.
     const videoRemote = await generateVideo(
-      `${post.plan.video_prompt?.trim() || "subtle cinematic motion"}. ${style}.`,
+      reelVideoPrompt({
+        motion: post.plan.video_prompt ?? "",
+        spokenLine: audio ? cleanSpokenLine(post.plan.spoken_line ?? "", reelSeconds()) : "",
+        sound: post.plan.sound ?? "",
+        voice: speakingVoice(coin.persona.voice ?? "", personalityText(coin.persona)),
+        style,
+        audio,
+      }),
       keyframe,
-      (fraction) => setProgress(postId, 35 + fraction * 50, "Animating the Reel"),
+      (fraction) => setProgress(postId, 35 + fraction * 50, stage),
     );
     await setProgress(postId, 87, "Saving the video");
     const video = await rehostVideo(videoRemote, coin.id);

@@ -1,3 +1,5 @@
+import { config } from "../config.js";
+import { coinPageUrl } from "../domain/links.js";
 import { one, query } from "../db/pool.js";
 import { openString } from "../lib/secrets.js";
 import type { ContentSettings, Persona } from "../domain/schemas.js";
@@ -80,7 +82,7 @@ export function publicCoin(c: CoinRow, extra: Record<string, unknown> = {}) {
     name: c.name,
     symbol: c.symbol,
     description: c.description,
-    website: c.website,
+    website: c.mint ? coinPageUrl(config.PUBLIC_URL, c.mint) : null,
     twitter: c.twitter,
     telegram: c.telegram,
     imageUrl: c.image_url,

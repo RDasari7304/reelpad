@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { config, isProd } from "./config.js";
+import { reelSeconds, reelsHaveAudio } from "./services/ai/fal.js";
 import { migrate } from "./db/migrate.js";
 import { pool } from "./db/pool.js";
 import { adminRouter } from "./http/admin.js";
@@ -77,6 +78,7 @@ app.get("/api/config", (_req, res) => {
       treasuryMinBuySol: config.TREASURY_MIN_BUY_SOL,
       treasuryBuyIntervalMin: config.TREASURY_BUY_INTERVAL_MIN,
     },
+    reels: { seconds: reelSeconds(), audio: reelsHaveAudio() },
     catalog: { personalities: PERSONALITIES, visualStyles: VISUAL_STYLES },
   });
 });

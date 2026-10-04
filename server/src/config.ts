@@ -62,9 +62,13 @@ const schema = z.object({
 
   FAL_KEY: z.string().min(1),
   FAL_IMAGE_MODEL: z.string().default("fal-ai/flux-pro/kontext"),
-  FAL_VIDEO_MODEL: z.string().default("fal-ai/kling-video/v2.1/standard/image-to-video"),
+  // Reels: a video model with native audio, so the character speaks (lip-synced) with sound effects.
+  // Supported: fal-ai/kling-video/v2.6/pro/image-to-video (default) or fal-ai/veo3.1/image-to-video.
+  FAL_REEL_MODEL: z.string().default("fal-ai/kling-video/v2.6/pro/image-to-video"),
+  REEL_SECONDS: num(5), // Kling: 5 or 10. Veo: 4, 6 or 8.
+  REEL_AUDIO: bool(true), // false = silent Reels (cheaper)
   COST_IMAGE_USD: num(0.04),
-  COST_VIDEO_USD: num(0.5),
+  COST_REEL_USD: num(0.7), // Kling 2.6 Pro with audio is about $0.14 per second
   COST_LLM_USD: num(0.02),
   DAILY_AI_BUDGET_USD: num(50),
 
@@ -73,7 +77,10 @@ const schema = z.object({
   CONTENT_MAX_REELS_PER_WEEK: num(21), // most Reels per week; Reels cost the most to generate
   CAPTION_FOOTER: z.string().default("AI-generated persona. Not financial advice."),
 
-  TREASURY_DRY_RUN: bool(false), // true = log buybacks/burns without sending them (testing only)
+  // Buybacks and burns are always live on-chain. The old TREASURY_DRY_RUN setting is ignored on purpose, so a
+  // leftover "true" in the hosting dashboard can't keep a deployment in simulation. For local testing only,
+  // TREASURY_SIMULATION=true logs buybacks without sending them.
+  TREASURY_DRY_RUN: z.any().transform(() => bool(false).parse(process.env.TREASURY_SIMULATION)),
   TREASURY_MAX_SOL_PER_ACTION: num(0.5), // most SOL one buyback can spend
   TREASURY_MAX_SOL_PER_DAY: num(2), // most SOL a coin's buybacks can spend per 24h; extra fees carry over
   TREASURY_MIN_INTERVAL_MIN: num(15), // how often each treasury is checked (fees claimed, price recorded)

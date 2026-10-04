@@ -1,4 +1,5 @@
 import { config } from "../../config.js";
+import { clipSeconds, supportsAudio, videoFamily, videoInput } from "../../domain/reel.js";
 
 /**
  * fal.ai queue API: submit, poll status, fetch result. Model IDs are configurable via env so
@@ -58,23 +59,20 @@ export async function generateImage(prompt: string, referenceImageUrl: string, a
   return url;
 }
 
-/** Typical time to render a 5-second clip; drives the progress estimate (never shown as done before it is). */
+/** Typical time to render a clip; drives the progress estimate (never shown as done before it is). */
 const EXPECTED_VIDEO_MS = 4 * 60_000;
 
 /**
- * Animates a keyframe image into a short vertical video for a Reel.
+ * Animates a keyframe image into a short vertical Reel. With audio on, the model also generates the
+ * character's voice (lip-synced to the quoted line in the prompt) and the scene's sound effects.
  * `onProgress` receives an estimated fraction (0–0.95) every ~10 seconds while it renders.
  */
 export async function generateVideo(prompt: string, keyframeUrl: string, onProgress?: (fraction: number) => Promise<unknown>) {
+  const model = config.FAL_REEL_MODEL;
   const out = await run<{ video?: { url: string } }>(
-    config.FAL_VIDEO_MODEL,
-    {
-      prompt,
-      image_url: keyframeUrl,
-      duration: "5",
-      negative_prompt: "blur, distortion, low quality, text, watermark",
-    },
-    12 * 60_000,
+    model,
+    videoInput(model, prompt, keyframeUrl, config.REEL_SECONDS, config.REEL_AUDIO),
+    15 * 60_000,
     // Eases toward 95% so a slow render keeps moving without ever claiming to be finished.
     onProgress ? (elapsed) => onProgress(Math.min(0.95, 1 - Math.exp(-elapsed / EXPECTED_VIDEO_MS * 1.6))) : undefined,
   );
@@ -82,3 +80,9 @@ export async function generateVideo(prompt: string, keyframeUrl: string, onProgr
   if (!url) throw new Error("Video model returned no video");
   return url;
 }
+
+/** True when Reels will have sound and speech with the configured model. */
+export const reelsHaveAudio = () => config.REEL_AUDIO && supportsAudio(config.FAL_REEL_MODEL);
+
+/** The clip length the configured model will actually render. */
+export const reelSeconds = () => clipSeconds(videoFamily(config.FAL_REEL_MODEL), config.REEL_SECONDS);

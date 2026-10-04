@@ -44,6 +44,7 @@ export async function agentCollectCreatorFees(agent: Keypair): Promise<string> {
   const bytes = await tradeLocal({
     publicKey: agent.publicKey.toBase58(),
     action: "collectCreatorFee",
+    pool: "pump",
     priorityFee: config.PUMPPORTAL_PRIORITY_FEE,
   });
   return signAndSendVersioned(bytes, [agent]);

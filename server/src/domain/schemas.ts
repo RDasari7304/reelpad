@@ -76,7 +76,7 @@ export const coinDraftSchema = z.object({
     .regex(/^[A-Za-z0-9$]+$/, "Ticker: letters and numbers only")
     .transform((s) => s.replace(/^\$/, "").toUpperCase()),
   description: z.string().trim().max(500).default(""),
-  website: optionalUrl,
+  // No website field: every coin's website is locked to its own Reelpad page.
   twitter: optionalUrl,
   telegram: optionalUrl,
   persona: personaSchema,

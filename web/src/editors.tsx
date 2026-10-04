@@ -118,7 +118,7 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
         <Field label="Backstory" hint="Optional. Where it came from, what it loves, its running jokes.">
           <textarea className="input" rows={4} maxLength={1500} value={value.backstory} onChange={(e) => set("backstory", e.target.value)} />
         </Field>
-        <Field label="Voice" hint="Optional. How it talks: emoji use, slang, sentence length.">
+        <Field label="Voice" hint="Optional. How it talks, in captions and out loud in Reels: tone, accent, pace, slang.">
           <textarea className="input" rows={4} maxLength={400} value={value.voice} onChange={(e) => set("voice", e.target.value)} />
         </Field>
         <Field label="Recurring themes" hint="Up to 10, each up to 60 characters. Press Enter after each, or paste a list.">
@@ -135,10 +135,18 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
   );
 }
 
-const FORMAT_LABELS: Record<Format, [string, string]> = {
-  image: ["Image posts", "A single image with a caption."],
-  carousel: ["Carousels", "Three to five images telling a short story."],
-  reel: ["Reels", "Five-second AI video clips. These cost the most to make, so they're capped per week."],
+const formatLabels = (config: AppConfig): Record<Format, [string, string]> => {
+  const secs = config.reels?.seconds ?? 5;
+  return {
+    image: ["Image posts", "A single image with a caption."],
+    carousel: ["Carousels", "Three to five images telling a short story."],
+    reel: [
+      "Reels",
+      config.reels?.audio === false
+        ? `${secs}-second AI video clips. These cost the most to make, so they're capped per week.`
+        : `${secs}-second AI videos with sound, where your character talks to the camera. These cost the most to make, so they're capped per week.`,
+    ],
+  };
 };
 
 export function ContentEditor({ value, onChange, config }: { value: ContentSettings; onChange: (c: ContentSettings) => void; config: AppConfig }) {
@@ -148,6 +156,7 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
     if (has && value.formats.length === 1) return;
     set("formats", has ? value.formats.filter((x) => x !== f) : [...value.formats, f]);
   };
+  const FORMAT_LABELS = formatLabels(config);
   return (
     <div className="editor">
       <div className="format-options">

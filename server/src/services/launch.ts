@@ -9,6 +9,7 @@ import { openKeypair, sealKeypair } from "../lib/secrets.js";
 import { getCoin, type CoinRow } from "./coins.js";
 import { pinImage, pinMetadata } from "./ipfs.js";
 import { normaliseTokenImage } from "./media.js";
+import { coinPageUrl } from "../domain/links.js";
 import { buildLaunchTransaction } from "./pump.js";
 import { connection, sendAndConfirmRaw } from "./solana.js";
 import { mediaKey, putObject } from "./storage.js";
@@ -39,7 +40,7 @@ export async function createDraft(wallet: string, draft: CoinDraft, image: Buffe
       draft.name,
       draft.symbol,
       draft.description,
-      draft.website ?? null,
+      coinPageUrl(config.PUBLIC_URL, mint.publicKey.toBase58()), // locked: the coin's Reelpad page
       draft.twitter ?? null,
       draft.telegram ?? null,
       agent.publicKey.toBase58(),
@@ -73,14 +74,16 @@ export async function prepareLaunch(coin: CoinRow, wallet: string) {
   if (!["draft", "awaiting_signature", "failed"].includes(coin.status)) throw new LaunchError(`Coin is already ${coin.status}`);
   if (!coin.mint_secret_enc) throw new LaunchError("Mint key missing");
 
+  // The website is always the coin's own Reelpad page; re-pin if older metadata pointed anywhere else.
+  const website = coinPageUrl(config.PUBLIC_URL, coin.mint!);
   const metadataUri =
-    coin.metadata_uri ??
+    (coin.metadata_uri && coin.website === website ? coin.metadata_uri : null) ??
     (await pinMetadata({
       name: coin.name,
       symbol: coin.symbol,
       description: coin.description,
       image: coin.image_ipfs,
-      website: coin.website ?? config.PUBLIC_URL,
+      website,
       twitter: coin.twitter ?? undefined,
       telegram: coin.telegram ?? undefined,
     }));
@@ -96,8 +99,8 @@ export async function prepareLaunch(coin: CoinRow, wallet: string) {
 
   await query(
     `UPDATE coins SET metadata_uri = $2, status = 'awaiting_signature', pending_message = $3,
-            pending_last_valid_height = $4, launch_error = NULL WHERE id = $1`,
-    [coin.id, metadataUri, built.message, built.lastValidBlockHeight],
+            pending_last_valid_height = $4, launch_error = NULL, website = $5 WHERE id = $1`,
+    [coin.id, metadataUri, built.message, built.lastValidBlockHeight, website],
   );
   return {
     transaction: built.transaction,

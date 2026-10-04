@@ -7,6 +7,8 @@ import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
+import { coinPageUrl } from "../src/domain/links.ts";
+import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
 import { chooseFormat, firstPostFormat, nextPostAt } from "../src/domain/schedule.ts";
 import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
 import { decrypt, decryptString, encrypt, parseMasterKey } from "../src/lib/crypto.ts";
@@ -264,5 +266,49 @@ describe("posting frequency", () => {
     const from = new Date("2026-01-01T00:00:00Z");
     const gap = nextPostAt(from, POSTS_PER_DAY.min, () => 0.5).getTime() - from.getTime();
     assert.equal(gap, 2 * 3600_000);
+  });
+});
+
+describe("talking reels", () => {
+  it("cleans spoken lines for the video model", () => {
+    assert.equal(cleanSpokenLine('(laughs) "Okay, $BYTE is HUGE today" 🚀 #moon', 5), "okay, $BYTE is HUGE today");
+    const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
+    const cut = cleanSpokenLine(long, 5);
+    assert.ok(cut.split(" ").length <= maxSpokenWords(5));
+    assert.ok(cut.endsWith("…"));
+    assert.equal(cleanSpokenLine("", 5), "");
+  });
+  it("puts the spoken line in quotes with voice and sound", () => {
+    const p = reelVideoPrompt({ motion: "slow push in.", spokenLine: "hi friends", sound: "rain", voice: "warm", style: "3D render", audio: true });
+    assert.match(p, /saying: "hi friends"/);
+    assert.match(p, /Sound: rain/);
+    assert.match(p, /Voice: .*warm/);
+    const silent = reelVideoPrompt({ motion: "", spokenLine: "hi", sound: "rain", voice: "warm", style: "x", audio: false });
+    assert.doesNotMatch(silent, /saying|Sound/);
+  });
+  it("builds the right request per model", () => {
+    const k = videoInput("fal-ai/kling-video/v2.6/pro/image-to-video", "p", "u", 5, true);
+    assert.equal(k.start_image_url, "u");
+    assert.equal(k.generate_audio, true);
+    assert.equal(k.duration, "5");
+    const v = videoInput("fal-ai/veo3.1/image-to-video", "p", "u", 5, true);
+    assert.equal(v.image_url, "u");
+    assert.equal(v.duration, "6s");
+    assert.equal(v.aspect_ratio, "9:16");
+    const old = videoInput("fal-ai/kling-video/v2.1/standard/image-to-video", "p", "u", 5, true);
+    assert.equal(old.generate_audio, undefined);
+    assert.equal(supportsAudio("fal-ai/kling-video/v2.1/standard/image-to-video"), false);
+    assert.equal(videoFamily("fal-ai/veo3/fast/image-to-video"), "veo3");
+    assert.equal(clipSeconds("kling-audio", 12), 10);
+  });
+  it("describes a stable speaking voice", () => {
+    assert.equal(speakingVoice("", ""), "");
+    assert.match(speakingVoice("slow and smug", "Deadpan"), /personality: Deadpan; delivery: slow and smug/);
+  });
+});
+
+describe("locked website", () => {
+  it("points to the coin's Reelpad page", () => {
+    assert.equal(coinPageUrl("https://reelpad.fun/", "Mint111"), "https://reelpad.fun/coin/Mint111");
   });
 });

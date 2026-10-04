@@ -84,7 +84,6 @@ export default function Launch() {
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [description, setDescription] = useState("");
-  const [website, setWebsite] = useState("");
   const [twitter, setTwitter] = useState("");
   const [telegram, setTelegram] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -140,7 +139,6 @@ export default function Launch() {
             name,
             symbol,
             description,
-            website: website || undefined,
             twitter: twitter || undefined,
             telegram: telegram || undefined,
             instagramUsername: igUsername.trim() || undefined,
@@ -215,8 +213,8 @@ export default function Launch() {
           <details className="more">
             <summary>Links</summary>
             <div className="grid-3">
-              <Field label="Website">
-                <input className="input" type="url" placeholder="https://" value={website} onChange={(e) => setWebsite(e.target.value)} disabled={!!coin} />
+              <Field label="Website" hint="Locked. Your coin's website is its own page on Reelpad.">
+                <input className="input" value={coin?.mint ? `${window.location.origin}/coin/${coin.mint}` : `${window.location.origin}/coin/…`} readOnly disabled />
               </Field>
               <Field label="X">
                 <input className="input" type="url" placeholder="https://x.com/…" value={twitter} onChange={(e) => setTwitter(e.target.value)} disabled={!!coin} />
