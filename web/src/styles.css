@@ -2874,3 +2874,6 @@ textarea.input {
   font-size: 12px;
   color: var(--ink-soft);
 }
+.story-lately {
+  border-left-color: var(--line-strong);
+}

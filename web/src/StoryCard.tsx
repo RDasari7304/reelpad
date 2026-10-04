@@ -18,7 +18,29 @@ export function StoryCard({ coin }: { coin: Coin }) {
 
   const cur = story?.current;
   const last = story?.past[0];
-  if (!cur && !last) return null;
+  if (!cur && !last) {
+    // No storyline yet: show the thread of the character's latest posts until the first one is planned.
+    if (!story?.lately?.length) return null;
+    return (
+      <section className="story-card story-lately" aria-label="Storyline">
+        <div className="story-head">
+          <span className="story-kicker">Storyline · starts with the next post</span>
+          <h3>The story so far</h3>
+        </div>
+        <p className="story-premise">
+          {coin.name}'s first full storyline is planned with its next post. Here's what it has been up to lately:
+        </p>
+        <ol className="story-episodes">
+          {story.lately.map((b, i) => (
+            <li key={i}>
+              {b.title && <strong>{b.title.replace(/^./, (c) => c.toUpperCase())}.</strong>}
+              {b.recap && <span> {b.recap}</span>}
+            </li>
+          ))}
+        </ol>
+      </section>
+    );
+  }
   const arc = cur ?? last!;
   return (
     <section className="story-card" aria-label="Storyline">

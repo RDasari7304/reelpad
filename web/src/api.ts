@@ -136,6 +136,8 @@ export interface StoryArcView {
 export interface StoryResponse {
   current: StoryArcView | null;
   past: StoryArcView[];
+  /** Before the first storyline: the character's latest moments, from its posts. */
+  lately?: Array<{ title: string; recap: string | null; at: string }>;
 }
 
 export interface CommentView {

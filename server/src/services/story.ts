@@ -141,5 +141,25 @@ export async function storyView(coinId: string) {
     [coinId],
   );
   const arcs = rows.rows.map((r) => ({ ...publicArc(toArc(r)), startedAt: r.created_at, completedAt: r.completed_at }));
-  return { current: arcs.find((a) => a.status === "active") ?? null, past: arcs.filter((a) => a.status === "done").slice(0, 3) };
+  const current = arcs.find((a) => a.status === "active") ?? null;
+  const past = arcs.filter((a) => a.status === "done").slice(0, 3);
+  // Before the first storyline exists: what the character has been up to lately, from its own posts
+  // (their concepts and the character's memory of each), so the card already shows the thread of its life.
+  let lately: Array<{ title: string; recap: string | null; at: Date }> = [];
+  if (!current && !past.length) {
+    const posts = await query<{ concept: string | null; plan: any; published_at: Date }>(
+      `SELECT concept, plan, published_at FROM posts WHERE coin_id = $1 AND status = 'published'
+       ORDER BY published_at DESC LIMIT 4`,
+      [coinId],
+    );
+    lately = posts.rows
+      .filter((p) => p.concept || p.plan?.memory)
+      .reverse()
+      .map((p) => ({
+        title: String(p.plan?.setting || p.concept || "").slice(0, 60),
+        recap: p.plan?.memory ? String(p.plan.memory).slice(0, 240) : p.concept ? String(p.concept).slice(0, 240) : null,
+        at: p.published_at,
+      }));
+  }
+  return { current, past, lately };
 }
