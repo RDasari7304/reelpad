@@ -78,7 +78,7 @@ const schema = z.object({
   COST_IMAGE_USD: num(0.04),
   COST_REEL_USD: num(0.7), // Kling 2.6 Pro with audio is about $0.14 per second
   COST_LLM_USD: num(0.02),
-  DAILY_AI_BUDGET_USD: num(50),
+  DAILY_AI_BUDGET_USD: num(150),
 
   COMMENT_SYNC_MIN: num(5), // how often each coin's comments are checked
   COMMENT_REPLIES_PER_HOUR: num(12), // per coin, so replies trickle out like a person's
