@@ -103,6 +103,16 @@ export interface Post {
   published_at: string | null;
 }
 
+export interface FeedPost {
+  id: string;
+  format: Format;
+  caption: string | null;
+  media: Array<{ type: "image" | "video"; url: string; role?: string }>;
+  permalink: string | null;
+  publishedAt: string;
+  coin: { id: string; name: string; symbol: string; mint: string | null; imageUrl: string; instagram: string };
+}
+
 export interface TreasuryView {
   agentWallet: string;
   solBalance: number | null;

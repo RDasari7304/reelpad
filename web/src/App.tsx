@@ -5,6 +5,7 @@ import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { SessionProvider, useSession } from "./session";
 import Home from "./pages/Home";
 import Launch from "./pages/Launch";
+import Feed from "./pages/Feed";
 import CoinPage from "./pages/Coin";
 import Mine from "./pages/Mine";
 import Admin from "./pages/Admin";
@@ -27,6 +28,7 @@ function Header() {
         <NavLink to="/" end>
           Influencers
         </NavLink>
+        <NavLink to="/feed">Recent posts</NavLink>
         {wallet && <NavLink to="/mine">My coins</NavLink>}
         {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         <NavLink to="/launch" className="nav-launch">
@@ -75,6 +77,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/launch" element={<Launch />} />
+                <Route path="/feed" element={<Feed />} />
                 <Route path="/coin/:key" element={<CoinPage />} />
                 <Route path="/mine" element={<Mine />} />
                 <Route path="/admin" element={<Admin />} />

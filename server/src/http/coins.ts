@@ -313,6 +313,41 @@ coinsRouter.post(
 
 export const postsRouter = Router();
 
+/** Public feed: the newest published posts from every live influencer, newest first. */
+postsRouter.get(
+  "/recent",
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Number(req.query.limit ?? 24) || 24, 48);
+    const before = typeof req.query.before === "string" ? new Date(req.query.before) : null;
+    const after = typeof req.query.after === "string" ? new Date(req.query.after) : null;
+    const valid = (d: Date | null) => (d && !isNaN(d.getTime()) ? d : null);
+    const rows = await query<any>(
+      `SELECT p.id, p.format, p.caption, p.media, p.permalink, p.published_at,
+              c.id AS coin_id, c.name, c.symbol, c.mint, c.image_url, i.username AS ig_username
+       FROM posts p
+       JOIN coins c ON c.id = p.coin_id AND c.status = 'live'
+       JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+       WHERE p.status = 'published' AND p.published_at IS NOT NULL
+         AND ($2::timestamptz IS NULL OR p.published_at < $2)
+         AND ($3::timestamptz IS NULL OR p.published_at > $3)
+       ORDER BY p.published_at DESC LIMIT $1`,
+      [limit, valid(before), valid(after)],
+    );
+    res.set("Cache-Control", "public, max-age=15");
+    res.json({
+      posts: rows.rows.map((r) => ({
+        id: r.id,
+        format: r.format,
+        caption: r.caption,
+        media: (r.media ?? []).map((m: any) => ({ type: m.type, url: m.url, role: m.role })),
+        permalink: r.permalink,
+        publishedAt: r.published_at,
+        coin: { id: r.coin_id, name: r.name, symbol: r.symbol, mint: r.mint, imageUrl: r.image_url, instagram: r.ig_username },
+      })),
+    });
+  }),
+);
+
 async function ownedPost(postId: string, wallet?: string) {
   if (!/^[0-9a-f-]{36}$/i.test(postId)) throw new HttpError(404, "Post not found");
   const post = await one<{ id: string; coin_id: string; status: string; creator_wallet: string }>(
