@@ -3,6 +3,7 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { config } from "../config.js";
 import { enqueue } from "../db/jobs.js";
 import { one, query } from "../db/pool.js";
+import { friendlyTradeError } from "../domain/tradeErrors.js";
 import { decideBuyback } from "../domain/treasuryPolicy.js";
 import { logger } from "../lib/logger.js";
 import { openKeypair } from "../lib/secrets.js";
@@ -175,6 +176,17 @@ export async function runTreasury(coinId: string) {
     },
   });
 
+  // After a failed buy, wait before trying again instead of failing every check.
+  const recentFail = await one(
+    `SELECT 1 FROM treasury_actions WHERE coin_id = $1 AND kind = 'buy' AND status = 'failed'
+       AND created_at > now() - ($2 || ' minutes')::interval`,
+    [coinId, String(config.TREASURY_BUY_INTERVAL_MIN)],
+  );
+  if (recentFail && decision.action !== "skip") {
+    logger.debug({ coinId }, "treasury waiting after a failed buy");
+    return;
+  }
+
   if (decision.action === "skip") {
     logger.debug({ coinId, reason: decision.reason }, "treasury skip");
     return;
@@ -187,19 +199,29 @@ export async function runTreasury(coinId: string) {
     return;
   }
 
+  let spentSol = decision.sol;
   try {
-    const sig = await agentBuy(agent, mint, decision.sol);
-    await record(coinId, { kind: "buy", status: "done", sol: decision.sol, sig, reason: decision.reason });
+    const bought = await agentBuy(agent, mint, decision.sol, price?.graduated ?? false);
+    spentSol = bought.sol;
+    await record(coinId, {
+      kind: "buy",
+      status: "done",
+      sol: bought.sol,
+      sig: bought.sig,
+      reason: bought.sol < decision.sol ? `${decision.reason} Bought in a smaller piece because the price was moving.` : decision.reason,
+    });
   } catch (e) {
-    await record(coinId, { kind: "buy", status: "failed", sol: decision.sol, reason: (e as Error).message });
-    throw e;
+    const raw = (e as Error).message;
+    logger.warn({ coinId, err: raw }, "buyback failed");
+    await record(coinId, { kind: "buy", status: "failed", sol: decision.sol, reason: friendlyTradeError(raw) });
+    return; // logged on the Treasury tab; the next try waits (see backoff above)
   }
 
   const burned = await burnAll(coin, "Burned the coins just bought back with creator fees.", true);
   if (burned) {
     await maybePostAboutBurn(
       coin,
-      `The treasury just used ${decision.sol} SOL of creator fees to buy back ${Math.round(burned).toLocaleString("en-US")} $${coin.symbol} and burned all of it.`,
+      `The treasury just used ${spentSol} SOL of creator fees to buy back ${Math.round(burned).toLocaleString("en-US")} $${coin.symbol} and burned all of it.`,
     );
   }
 }

@@ -10,6 +10,7 @@ import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { applyTier, TIERS } from "../src/domain/tiers.ts";
 import { imageInput } from "../src/domain/images.ts";
+import { buyAttempts, friendlyTradeError, isSlippageError } from "../src/domain/tradeErrors.ts";
 import { bucketCandles, isTimeframe, parseOhlcv } from "../src/domain/chart.ts";
 import { cleanLine, lineSeconds, pairKey, pickPair, timeLines } from "../src/domain/room.ts";
 import { cleanSpokenLine, clipSeconds, maxSpokenWords, reelVideoPrompt, speakingVoice, supportsAudio, videoFamily, videoInput } from "../src/domain/reel.ts";
@@ -397,5 +398,20 @@ describe("generation tiers", () => {
   });
   it("Veo reels are 6 seconds", () => {
     assert.equal(clipSeconds(videoFamily(TIERS.premium.FAL_REEL_MODEL), TIERS.premium.REEL_SECONDS), 6);
+  });
+});
+
+describe("buyback errors", () => {
+  const raw = 'Simulation failed. Message: Transaction simulation failed: Error processing Instruction 3: custom program error: 0x1774. Logs: [ "Program log: ..." ]';
+  it("recognises PumpSwap slippage and explains it", () => {
+    assert.ok(isSlippageError(raw));
+    assert.match(friendlyTradeError(raw), /slippage/);
+    assert.ok(!friendlyTradeError(raw).includes("Logs"));
+  });
+  it("retries with more room, then smaller pieces", () => {
+    const a = buyAttempts(0.5, 15);
+    assert.deepEqual(a.map((x) => x.sol), [0.5, 0.5, 0.25, 0.125]);
+    assert.equal(a[1]!.slippage, 30);
+    assert.equal(buyAttempts(0.012, 15).length, 3);
   });
 });

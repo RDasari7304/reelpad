@@ -1,5 +1,6 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { config } from "../config.js";
+import { buyAttempts, isSlippageError } from "../domain/tradeErrors.js";
 import { signAndSendVersioned } from "./solana.js";
 
 /**
@@ -20,23 +21,37 @@ async function tradeLocal(body: Record<string, unknown>): Promise<Uint8Array> {
 }
 
 /** Unsigned buy transaction for any wallet (used for the creator's optional dev buy after launch). */
-export async function buildBuyTx(wallet: PublicKey, mint: PublicKey, solAmount: number, pool = "pump") {
+export async function buildBuyTx(wallet: PublicKey, mint: PublicKey, solAmount: number, pool = "pump", slippage = config.PUMPPORTAL_SLIPPAGE) {
   return tradeLocal({
     publicKey: wallet.toBase58(),
     action: "buy",
     mint: mint.toBase58(),
     denominatedInSol: "true",
     amount: solAmount,
-    slippage: config.PUMPPORTAL_SLIPPAGE,
+    slippage,
     priorityFee: config.PUMPPORTAL_PRIORITY_FEE,
     pool,
   });
 }
 
-/** Agent buys its own coin with SOL. */
-export async function agentBuy(agent: Keypair, mint: PublicKey, solAmount: number): Promise<string> {
-  const bytes = await buildBuyTx(agent.publicKey, mint, solAmount, "auto");
-  return signAndSendVersioned(bytes, [agent]);
+/**
+ * Agent buys its own coin with SOL. Uses the bonding curve before graduation and PumpSwap after.
+ * If the price moves too much (slippage), it retries with a little more room, then in smaller pieces,
+ * and returns how much SOL it actually spent.
+ */
+export async function agentBuy(agent: Keypair, mint: PublicKey, solAmount: number, graduated: boolean): Promise<{ sig: string; sol: number }> {
+  const pool = graduated ? "pump-amm" : "pump";
+  let lastErr: unknown;
+  for (const a of buyAttempts(solAmount, config.PUMPPORTAL_SLIPPAGE)) {
+    try {
+      const bytes = await buildBuyTx(agent.publicKey, mint, a.sol, pool, a.slippage);
+      return { sig: await signAndSendVersioned(bytes, [agent]), sol: a.sol };
+    } catch (e) {
+      lastErr = e;
+      if (!isSlippageError((e as Error).message)) throw e;
+    }
+  }
+  throw lastErr ?? new Error("Buy failed");
 }
 
 /** Claims all pump.fun creator fees owed to the agent wallet (pump.fun claims across coins at once). */
