@@ -33,9 +33,13 @@ const PLAN_SCHEMA = {
       description:
         "Image-generation prompts. Each describes one scene featuring the character from the reference image. No text in images.",
     },
-    video_prompt: { type: "string", description: "For reels only: the motion/camera direction for a 5-second clip." },
+    video_prompt: {
+      type: "string",
+      description: "For reels: the motion/camera direction for a 5-second clip. For other formats, an empty string.",
+    },
   },
-  required: ["concept", "caption", "hashtags", "image_prompts"],
+  required: ["concept", "caption", "hashtags", "image_prompts", "video_prompt"],
+  additionalProperties: false,
 };
 
 function formatInstructions(format: Format) {
@@ -92,7 +96,7 @@ async function planWithClaude(coin: CoinRow, format: Format, note?: string): Pro
       system,
       user,
       toolName: "plan_post",
-      toolDescription: "Return the plan for one Instagram post.",
+      toolDescription: "the plan for one Instagram post, as JSON matching the schema.",
       schema: PLAN_SCHEMA,
     });
     plan.caption = String(plan.caption ?? "").trim();
@@ -171,7 +175,7 @@ export async function generatePost(postId: string) {
   if (post.format === "reel") {
     const keyframe = await generateImage(fullPrompt(prompts[0]!), coin.image_url, "9:16");
     const cover = await rehostImageForInstagram(keyframe, coin.id, "9:16");
-    const videoRemote = await generateVideo(`${post.plan.video_prompt ?? "subtle cinematic motion"}. ${style}.`, keyframe);
+    const videoRemote = await generateVideo(`${post.plan.video_prompt?.trim() || "subtle cinematic motion"}. ${style}.`, keyframe);
     const video = await rehostVideo(videoRemote, coin.id);
     media.push({ type: "video", ...video }, { type: "image", role: "cover", ...cover });
   } else {

@@ -1,12 +1,16 @@
 import { config } from "../../config.js";
 
 /**
- * Calls the Claude Messages API and forces a single tool call so we always get structured JSON back.
+ * Calls the Claude Messages API with structured outputs (output_config.format = json_schema),
+ * so the reply is always JSON matching `schema`. Newer models don't accept a forced tool_choice,
+ * which is what earlier versions of this file used.
  */
 export async function structured<T>(opts: {
   system: string;
   user: string;
+  /** Short name for what's being produced; used in error messages. */
   toolName: string;
+  /** One-line description of the expected output; appended to the instructions. */
   toolDescription: string;
   schema: Record<string, unknown>;
   maxTokens?: number;
@@ -26,18 +30,21 @@ export async function structured<T>(opts: {
     headers,
     body: JSON.stringify({
       model: config.ANTHROPIC_MODEL,
-      max_tokens: opts.maxTokens ?? 2000,
+      max_tokens: opts.maxTokens ?? 4000,
       system: opts.system,
-      messages: [{ role: "user", content: opts.user }],
-      tools: [{ name: opts.toolName, description: opts.toolDescription, input_schema: opts.schema }],
-      tool_choice: { type: "tool", name: opts.toolName },
+      messages: [{ role: "user", content: `${opts.user}\n\nRespond with: ${opts.toolDescription}` }],
+      output_config: { format: { type: "json_schema", schema: opts.schema } },
     }),
   });
   if (!res.ok) {
     throw new Error(`Claude API error (${res.status}): ${(await res.text()).slice(0, 400)}`);
   }
-  const json = (await res.json()) as { content: Array<{ type: string; name?: string; input?: unknown }> };
-  const block = json.content.find((c) => c.type === "tool_use" && c.name === opts.toolName);
-  if (!block?.input) throw new Error("Claude returned no structured output");
-  return block.input as T;
+  const json = (await res.json()) as { content: Array<{ type: string; text?: string }>; stop_reason?: string };
+  const text = json.content.find((c) => c.type === "text" && c.text)?.text;
+  if (!text) throw new Error(`Claude returned no ${opts.toolName} output (stop reason: ${json.stop_reason ?? "unknown"})`);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Claude returned invalid JSON for ${opts.toolName} (stop reason: ${json.stop_reason ?? "unknown"})`);
+  }
 }
