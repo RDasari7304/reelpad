@@ -7,7 +7,7 @@ import { ContentEditor, PersonaSummary } from "../editors";
 import { InstagramConnect } from "../InstagramConnect";
 import { useSession } from "../session";
 
-type Tab = "posts" | "treasury" | "settings";
+type Tab = "chart" | "posts" | "treasury" | "settings";
 
 const STATUS_LABEL: Record<string, string> = {
   generating: "Making it",
@@ -280,6 +280,46 @@ function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void
   );
 }
 
+type ChartSource = "dexscreener" | "birdeye";
+
+/** Live price chart embedded from DexScreener (default) or Birdeye. */
+function ChartTab({ mint, symbol }: { mint: string; symbol: string }) {
+  const [source, setSource] = useState<ChartSource>("dexscreener");
+  const dark = typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  const theme = dark ? "dark" : "light";
+  const src =
+    source === "dexscreener"
+      ? `https://dexscreener.com/solana/${mint}?embed=1&loadChartSettings=0&trades=1&tabs=0&info=0&chartLeftToolbar=0&chartTheme=${theme}&theme=${theme}&chartStyle=1&chartType=usd&interval=5`
+      : `https://birdeye.so/tv-widget/${mint}?chain=solana&viewMode=pair&chartInterval=5&chartType=CANDLE&chartTimezone=Etc%2FUTC&chartLeftToolbar=hide&theme=${theme}`;
+  return (
+    <section className="chart-tab">
+      <div className="chart-bar">
+        <div className="chart-sources" role="group" aria-label="Chart source">
+          {(["dexscreener", "birdeye"] as ChartSource[]).map((s) => (
+            <button key={s} type="button" className={source === s ? "chip on" : "chip"} aria-pressed={source === s} onClick={() => setSource(s)}>
+              {s === "dexscreener" ? "DexScreener" : "Birdeye"}
+            </button>
+          ))}
+        </div>
+        <div className="chart-links">
+          <a href={`https://pump.fun/coin/${mint}`} target="_blank" rel="noreferrer">
+            Trade ${symbol} on pump.fun
+          </a>
+          <a href={`https://dexscreener.com/solana/${mint}`} target="_blank" rel="noreferrer">
+            Open full chart
+          </a>
+        </div>
+      </div>
+      <div className="chart-frame">
+        <iframe key={src} src={src} title={`$${symbol} price chart`} loading="lazy" allow="clipboard-write" referrerPolicy="no-referrer-when-downgrade" />
+      </div>
+      <p className="sub-hint">
+        Brand-new coins can take a minute or two to appear on chart sites. If it's blank, switch source or check back shortly.
+      </p>
+    </section>
+  );
+}
+
 export default function CoinPage() {
   const { key } = useParams();
   const [params, setParams] = useSearchParams();
@@ -287,7 +327,8 @@ export default function CoinPage() {
   const { wallet, signIn, signingIn } = useSession();
   const [coin, setCoin] = useState<Coin | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [tab, setTab] = useState<Tab>("posts");
+  // The chart is the default tab for launched coins; the page switches to Posts if there's no chart yet.
+  const [tab, setTab] = useState<Tab>("chart");
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -328,6 +369,7 @@ export default function CoinPage() {
   useEffect(() => {
     if (params.get("ig") === "connected") {
       setFlash("Instagram connected. Your first post is being made now. Watch its progress below.");
+      setTab("posts");
       setExpectUntil(Date.now() + 120_000);
     }
     if (params.get("ig_error")) setError(params.get("ig_error"));
@@ -345,6 +387,8 @@ export default function CoinPage() {
   const couldOwn = !owner && publicKey?.toBase58() === coin.creatorWallet;
   const launched = params.get("launched") === "1";
   const igActive = coin.instagram?.status === "active";
+  const hasChart = coin.status === "live" && !!coin.mint;
+  const shown: Tab = tab === "chart" && !hasChart ? "posts" : tab;
 
   const generate = async () => {
     try {
@@ -436,19 +480,20 @@ export default function CoinPage() {
       {owner && coin.status === "live" && !igActive && <InstagramConnect coin={coin} launched={launched} onChange={setCoin} />}
 
       <nav className="tabs" role="tablist">
-        {(["posts", "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
-            {t === "posts" ? "Posts" : t === "treasury" ? "Treasury" : "Settings"}
+        {([...(hasChart ? ["chart"] : []), "posts", "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
+          <button key={t} role="tab" aria-selected={shown === t} className={shown === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
+            {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "treasury" ? "Treasury" : "Settings"}
           </button>
         ))}
-        {owner && igActive && coin.status === "live" && tab === "posts" && (
+        {owner && igActive && coin.status === "live" && shown === "posts" && (
           <button className="btn btn-small tabs-action" onClick={generate}>
             Make a post now
           </button>
         )}
       </nav>
 
-      {tab === "posts" &&
+      {shown === "chart" && hasChart && <ChartTab mint={coin.mint!} symbol={coin.symbol} />}
+      {shown === "posts" &&
         (posts.length === 0 ? (
           <p className="empty-line">
             {igActive ? "The first post is being planned. It appears here as soon as it's made." : "Posts appear here once Instagram is connected."}
@@ -464,8 +509,8 @@ export default function CoinPage() {
             )}
           </div>
         ))}
-      {tab === "treasury" && coin.status === "live" && <TreasuryTab coin={coin} />}
-      {tab === "settings" && owner && (
+      {shown === "treasury" && coin.status === "live" && <TreasuryTab coin={coin} />}
+      {shown === "settings" && owner && (
         <>
           <SettingsTab coin={coin} onSaved={setCoin} />
           {igActive && (
