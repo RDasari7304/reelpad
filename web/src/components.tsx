@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { humanize, shortAddr, type Coin } from "./api";
 
@@ -14,6 +14,7 @@ export function CoinPrint({ coin, tilt = 0 }: { coin: Coin; tilt?: number }) {
         <strong>{coin.name}</strong>
         <span className="print-ticker">${coin.symbol}</span>
         <span className="print-handle">{coin.instagram ? `@${coin.instagram.username}` : "Instagram not connected yet"}</span>
+        {coin.instagram && <NextPostCountdown coin={coin} compact />}
       </div>
     </Link>
   );
@@ -124,6 +125,93 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "error" | 
   return (
     <div className={`notice notice-${tone}`} role={tone === "error" ? "alert" : "status"}>
       {children}
+    </div>
+  );
+}
+
+/** Current time, re-rendered every `ms` milliseconds. */
+export function useNow(ms = 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+  return now;
+}
+
+/** 3725000 → "1:02:05", 65000 → "1:05". */
+export function formatCountdown(ms: number) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+/**
+ * Live countdown to the character's next scheduled post. Shows "Posting now" while a post is being
+ * made, "Paused" when posting is off, and calls `onDue` once when the timer reaches zero.
+ */
+export function NextPostCountdown({
+  coin,
+  making = false,
+  onDue,
+  compact = false,
+}: {
+  coin: Coin;
+  making?: boolean;
+  onDue?: () => void;
+  compact?: boolean;
+}) {
+  const now = useNow(1000);
+  const target = coin.nextPostAt ? new Date(coin.nextPostAt).getTime() : null;
+  const left = target === null ? null : target - now;
+  const fired = useRef<number | null>(null);
+  useEffect(() => {
+    if (left !== null && left <= 0 && onDue && fired.current !== target) {
+      fired.current = target;
+      onDue();
+    }
+  }, [left, onDue, target]);
+
+  if (coin.status !== "live") return null;
+  let label: string;
+  let state: "counting" | "now" | "paused";
+  if (coin.contentPaused) {
+    label = "Paused";
+    state = "paused";
+  } else if (making) {
+    label = "Posting now";
+    state = "now";
+  } else if (left === null || left <= 0) {
+    label = "Any moment";
+    state = "now";
+  } else {
+    label = formatCountdown(left);
+    state = "counting";
+  }
+
+  if (compact) {
+    return (
+      <span className={`countdown-chip ${state}`} title="Time until this character's next post">
+        <span className="countdown-dot" aria-hidden />
+        {state === "counting" ? `Next post ${label}` : label}
+      </span>
+    );
+  }
+  return (
+    <div className={`countdown ${state}`} role="timer" aria-live="off">
+      <span className="countdown-dot" aria-hidden />
+      <span className="countdown-text">
+        <small>{state === "counting" ? `${coin.name} posts again in` : state === "paused" ? "Posting is" : `${coin.name} is`}</small>
+        <strong>{state === "counting" ? label : state === "paused" ? "Paused" : making ? "Posting now" : "About to post"}</strong>
+      </span>
+      {target && state === "counting" && (
+        <time className="countdown-at" dateTime={new Date(target).toISOString()}>
+          around {new Date(target).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+        </time>
+      )}
     </div>
   );
 }

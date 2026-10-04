@@ -2,7 +2,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, type Coin, type ContentSettings, type Post, type TreasuryView } from "../api";
-import { Address, Notice } from "../components";
+import { Address, NextPostCountdown, Notice } from "../components";
 import { ContentEditor, PersonaSummary } from "../editors";
 import { InstagramConnect } from "../InstagramConnect";
 import { useSession } from "../session";
@@ -401,6 +401,18 @@ export default function CoinPage() {
           </div>
         </dl>
       </header>
+
+      {igActive && coin.status === "live" && (
+        <NextPostCountdown
+          coin={coin}
+          making={making}
+          onDue={() => {
+            // The scheduler picks up due posts within a minute; refresh so the new post card appears.
+            setExpectUntil(Date.now() + 120_000);
+            setTimeout(load, 5000);
+          }}
+        />
+      )}
 
       {flash && <Notice tone="ok">{flash}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
