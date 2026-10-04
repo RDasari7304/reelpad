@@ -1,0 +1,80 @@
+import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
+import { WalletModalProvider, WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { clusterApiUrl } from "@solana/web3.js";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { SessionProvider, useSession } from "./session";
+import Home from "./pages/Home";
+import Launch from "./pages/Launch";
+import CoinPage from "./pages/Coin";
+import Mine from "./pages/Mine";
+import Admin from "./pages/Admin";
+import { DataDeletion, Privacy, Terms } from "./pages/Legal";
+
+const RPC = import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta");
+
+function Header() {
+  const { wallet, isAdmin, config } = useSession();
+  return (
+    <header className="site-header">
+      <Link to="/" className="wordmark" aria-label="Home">
+        <span className="wordmark-print" aria-hidden />
+        {config?.appName ?? "Reelpad"}
+      </Link>
+      <nav className="site-nav">
+        <NavLink to="/" end>
+          Influencers
+        </NavLink>
+        {wallet && <NavLink to="/mine">My coins</NavLink>}
+        {isAdmin && <NavLink to="/admin">Admin</NavLink>}
+        <NavLink to="/launch" className="nav-launch">
+          Launch a coin
+        </NavLink>
+      </nav>
+      <WalletMultiButton />
+    </header>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="site-footer">
+      <p>
+        Coins launched here are created on pump.fun. Influencers are AI characters and never give financial advice. Crypto is
+        risky; only spend what you can afford to lose.
+      </p>
+      <nav>
+        <Link to="/terms">Terms</Link>
+        <Link to="/privacy">Privacy</Link>
+        <Link to="/data-deletion">Data deletion</Link>
+      </nav>
+    </footer>
+  );
+}
+
+export default function App() {
+  return (
+    <ConnectionProvider endpoint={RPC}>
+      <WalletProvider wallets={[]} autoConnect>
+        <WalletModalProvider>
+          <SessionProvider>
+            <Header />
+            <main>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/launch" element={<Launch />} />
+                <Route path="/coin/:key" element={<CoinPage />} />
+                <Route path="/mine" element={<Mine />} />
+                <Route path="/admin" element={<Admin />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/data-deletion" element={<DataDeletion />} />
+                <Route path="*" element={<div className="page narrow"><h1>Page not found</h1><Link to="/">Back to influencers</Link></div>} />
+              </Routes>
+            </main>
+            <Footer />
+          </SessionProvider>
+        </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
+  );
+}

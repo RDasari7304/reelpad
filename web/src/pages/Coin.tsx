@@ -1,0 +1,422 @@
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { api, type Coin, type ContentSettings, type Persona, type Post, type TreasurySettings, type TreasuryView } from "../api";
+import { Address, Notice } from "../components";
+import { ContentEditor, PersonaEditor, TreasuryEditor } from "../editors";
+import { InstagramConnect } from "../InstagramConnect";
+import { useSession } from "../session";
+
+type Tab = "posts" | "treasury" | "settings";
+
+const STATUS_LABEL: Record<string, string> = {
+  generating: "Making it",
+  awaiting_approval: "Waiting for your approval",
+  ready: "Queued to post",
+  publishing: "Posting",
+  published: "Posted",
+  failed: "Failed",
+  rejected: "Rejected",
+  planned: "Planned",
+};
+
+function PostTile({ post, owner, onChange }: { post: Post; owner: boolean; onChange: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [caption, setCaption] = useState(post.caption ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const video = post.media.find((m) => m.type === "video");
+  const cover = post.media.find((m) => m.role === "cover") ?? post.media.find((m) => m.type === "image");
+
+  const act = async (path: string, init?: Parameters<typeof api>[1]) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api(path, { method: "POST", ...init });
+      onChange();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className={`post post-${post.status}`}>
+      <div className="post-media">
+        {video ? (
+          <video src={video.url} poster={cover?.url} controls playsInline preload="none" />
+        ) : cover ? (
+          <img src={cover.url} alt={post.concept ?? ""} loading="lazy" />
+        ) : (
+          <div className="post-placeholder">{post.status === "failed" ? "No media" : "Generating…"}</div>
+        )}
+        {post.format !== "image" && <span className="post-format">{post.format === "reel" ? "Reel" : `${post.media.length} images`}</span>}
+      </div>
+      <div className="post-body">
+        {owner && <span className={`status status-${post.status}`}>{STATUS_LABEL[post.status] ?? post.status}</span>}
+        {editing ? (
+          <textarea className="input" rows={6} maxLength={2200} value={caption} onChange={(e) => setCaption(e.target.value)} />
+        ) : (
+          <p className="post-caption">{post.caption ?? post.concept}</p>
+        )}
+        {post.error && owner && <p className="field-error">{post.error}</p>}
+        {err && <p className="field-error">{err}</p>}
+        <div className="post-actions">
+          {post.permalink && (
+            <a href={post.permalink} target="_blank" rel="noreferrer">
+              View on Instagram
+            </a>
+          )}
+          {owner && post.status === "awaiting_approval" && (
+            <>
+              {editing ? (
+                <button
+                  className="btn btn-small"
+                  disabled={busy}
+                  onClick={() =>
+                    act(`/posts/${post.id}`, { method: "PATCH", json: { caption } }).then(() => setEditing(false))
+                  }
+                >
+                  Save caption
+                </button>
+              ) : (
+                <button className="btn btn-small btn-quiet" onClick={() => setEditing(true)}>
+                  Edit caption
+                </button>
+              )}
+              <button className="btn btn-small btn-primary" disabled={busy || editing} onClick={() => act(`/posts/${post.id}/approve`)}>
+                Approve and post
+              </button>
+              <button className="btn btn-small btn-quiet" disabled={busy} onClick={() => act(`/posts/${post.id}/reject`)}>
+                Reject
+              </button>
+            </>
+          )}
+          {owner && post.status === "failed" && (
+            <button className="btn btn-small" disabled={busy} onClick={() => act(`/posts/${post.id}/retry`)}>
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function PriceLine({ prices }: { prices: TreasuryView["prices"] }) {
+  if (prices.length < 2) return <p className="muted">Price history appears after the first few treasury checks.</p>;
+  const w = 600;
+  const h = 120;
+  const ps = prices.map((p) => p.p);
+  const min = Math.min(...ps);
+  const max = Math.max(...ps);
+  const pts = ps.map((p, i) => `${(i / (ps.length - 1)) * w},${h - ((p - min) / (max - min || 1)) * (h - 8) - 4}`).join(" ");
+  return (
+    <figure className="priceline">
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label="Price over the last 7 days">
+        <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <figcaption>Price in SOL, last 7 days</figcaption>
+    </figure>
+  );
+}
+
+function TreasuryTab({ coin }: { coin: Coin }) {
+  const [t, setT] = useState<TreasuryView | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api<TreasuryView>(`/coins/${coin.id}/treasury`).then(setT).catch((e) => setErr(e.message));
+  }, [coin.id]);
+  if (err) return <Notice tone="error">{err}</Notice>;
+  if (!t) return <div aria-busy="true" className="loading-block" />;
+  return (
+    <div className="treasury">
+      <dl className="treasury-figures">
+        <div>
+          <dt>SOL in treasury</dt>
+          <dd>{t.solBalance?.toFixed(4) ?? "—"}</dd>
+        </div>
+        <div>
+          <dt>${coin.symbol} held</dt>
+          <dd>{t.tokenBalance !== null ? Math.round(t.tokenBalance).toLocaleString() : "—"}</dd>
+        </div>
+        <div>
+          <dt>Strategy</dt>
+          <dd className="treasury-strategy">
+            {t.settings.enabled ? t.settings.strategy.replace(/_/g, " ") : "Collecting fees only"}
+            {t.paused && " (paused)"}
+          </dd>
+        </div>
+        <div>
+          <dt>Agent wallet</dt>
+          <dd>
+            <Address value={t.agentWallet} href={`https://solscan.io/account/${t.agentWallet}`} />
+          </dd>
+        </div>
+      </dl>
+      {t.dryRun && <Notice tone="warn">Simulation mode: trades below are logged but were not sent on-chain.</Notice>}
+      <PriceLine prices={t.prices} />
+      <h3 className="sub">Activity</h3>
+      {t.actions.length === 0 ? (
+        <p className="muted">No treasury activity yet. Creator fees are collected once trading starts.</p>
+      ) : (
+        <ul className="ledger">
+          {t.actions.map((a, i) => (
+            <li key={i} className={`ledger-${a.status}`}>
+              <time dateTime={a.created_at}>{new Date(a.created_at).toLocaleString()}</time>
+              <span className="ledger-kind">
+                {a.kind === "claim_fees" ? "Collected fees" : a.kind === "buy" ? "Bought back" : a.kind === "burn" ? "Burned" : a.kind}
+                {a.sol_amount && ` · ${Number(a.sol_amount).toFixed(4)} SOL`}
+                {a.token_amount && ` · ${Math.round(Number(a.token_amount)).toLocaleString()} ${coin.symbol}`}
+                {a.status === "simulated" && " · simulated"}
+                {a.status === "failed" && " · failed"}
+              </span>
+              <span className="ledger-reason">{a.reason}</span>
+              {a.tx_sig && (
+                <a href={`https://solscan.io/tx/${a.tx_sig}`} target="_blank" rel="noreferrer">
+                  Transaction
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void }) {
+  const { config } = useSession();
+  const [persona, setPersona] = useState<Persona>(coin.persona);
+  const [content, setContent] = useState<ContentSettings>(coin.contentSettings);
+  const [treasury, setTreasury] = useState<TreasurySettings>(coin.treasurySettings);
+  const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!config) return null;
+
+  const save = async (patch: Record<string, unknown>, okText = "Saved.") => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api<{ coin: Coin }>(`/coins/${coin.id}/settings`, { method: "PATCH", json: patch });
+      onSaved({ ...coin, ...r.coin });
+      setMsg({ tone: "ok", text: okText });
+    } catch (e) {
+      setMsg({ tone: "error", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="settings">
+      <div className="settings-bar">
+        <label className="switch">
+          <input type="checkbox" checked={!coin.contentPaused} onChange={(e) => save({ contentPaused: !e.target.checked }, e.target.checked ? "Posting resumed." : "Posting paused.")} />
+          <span>
+            <strong>Posting</strong>
+            <small>{coin.contentPaused ? "Paused" : "On"}</small>
+          </span>
+        </label>
+        <label className="switch">
+          <input type="checkbox" checked={!coin.treasuryPaused} onChange={(e) => save({ treasuryPaused: !e.target.checked }, e.target.checked ? "Treasury resumed." : "Treasury paused.")} />
+          <span>
+            <strong>Treasury</strong>
+            <small>{coin.treasuryPaused ? "Paused" : "On"}</small>
+          </span>
+        </label>
+      </div>
+      <h3 className="sub-section">Character</h3>
+      <PersonaEditor value={persona} onChange={setPersona} config={config} />
+      <h3 className="sub-section">Posting</h3>
+      <ContentEditor value={content} onChange={setContent} config={config} />
+      <h3 className="sub-section">Treasury</h3>
+      <TreasuryEditor value={treasury} onChange={setTreasury} config={config} />
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <button className="btn btn-primary" disabled={busy} onClick={() => save({ persona, contentSettings: content, treasurySettings: treasury })}>
+        Save changes
+      </button>
+    </div>
+  );
+}
+
+export default function CoinPage() {
+  const { key } = useParams();
+  const [params, setParams] = useSearchParams();
+  const { publicKey } = useWallet();
+  const { wallet, signIn, signingIn } = useSession();
+  const [coin, setCoin] = useState<Coin | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [tab, setTab] = useState<Tab>("posts");
+  const [error, setError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api<{ coin: Coin }>(`/coins/${key}`);
+      setCoin(r.coin);
+      const p = await api<{ posts: Post[] }>(`/coins/${r.coin.id}/posts`);
+      setPosts(p.posts);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [key]);
+
+  useEffect(() => {
+    load();
+  }, [load, wallet]);
+
+  // While waiting to be added as an Instagram tester, check every 30s so the next step appears on its own.
+  useEffect(() => {
+    if (!coin?.isOwner || coin.instagramAccess?.status !== "pending") return;
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [coin?.isOwner, coin?.instagramAccess?.status, load]);
+
+  // Refresh while posts are being made.
+  useEffect(() => {
+    if (!posts.some((p) => ["generating", "publishing", "ready"].includes(p.status))) return;
+    const id = setInterval(load, 10_000);
+    return () => clearInterval(id);
+  }, [posts, load]);
+
+  useEffect(() => {
+    if (params.get("ig") === "connected") setFlash("Instagram connected. The first post is on its way.");
+    if (params.get("ig_error")) setError(params.get("ig_error"));
+    if (params.has("ig") || params.has("ig_error")) {
+      params.delete("ig");
+      params.delete("ig_error");
+      setParams(params, { replace: true });
+    }
+  }, [params, setParams]);
+
+  if (error && !coin) return <div className="page narrow"><Notice tone="error">{error}</Notice></div>;
+  if (!coin) return <div className="page" aria-busy="true" />;
+
+  const owner = !!coin.isOwner;
+  const couldOwn = !owner && publicKey?.toBase58() === coin.creatorWallet;
+  const launched = params.get("launched") === "1";
+  const igActive = coin.instagram?.status === "active" || (coin.instagram && !coin.instagram.status);
+
+  const generate = async () => {
+    try {
+      await api(`/coins/${coin.id}/posts/generate`, { method: "POST", json: {} });
+      setFlash("A new post is being made. It shows up here in a minute or two.");
+      setTimeout(load, 3000);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="page coin">
+      <header className="profile">
+        <img className="profile-avatar" src={coin.imageUrl} alt="" />
+        <div className="profile-main">
+          <h1>
+            {coin.name} <span className="profile-ticker">${coin.symbol}</span>
+          </h1>
+          <p className="profile-handle">
+            {coin.instagram ? (
+              <a href={`https://instagram.com/${coin.instagram.username}`} target="_blank" rel="noreferrer">
+                @{coin.instagram.username}
+              </a>
+            ) : (
+              "No Instagram account connected yet"
+            )}
+          </p>
+          {coin.description && <p className="profile-bio">{coin.description}</p>}
+          <div className="profile-links">
+            {coin.mint && (
+              <>
+                <Address value={coin.mint} />
+                <a href={`https://pump.fun/coin/${coin.mint}`} target="_blank" rel="noreferrer">
+                  Trade on pump.fun
+                </a>
+              </>
+            )}
+            {coin.website && <a href={coin.website} target="_blank" rel="noreferrer">Website</a>}
+            {coin.twitter && <a href={coin.twitter} target="_blank" rel="noreferrer">X</a>}
+            {coin.telegram && <a href={coin.telegram} target="_blank" rel="noreferrer">Telegram</a>}
+          </div>
+        </div>
+        <dl className="profile-stats">
+          <div>
+            <dt>Posts</dt>
+            <dd>{posts.filter((p) => p.status === "published").length}</dd>
+          </div>
+          <div>
+            <dt>Launched</dt>
+            <dd>{coin.launchedAt ? new Date(coin.launchedAt).toLocaleDateString() : "—"}</dd>
+          </div>
+        </dl>
+      </header>
+
+      {flash && <Notice tone="ok">{flash}</Notice>}
+      {error && <Notice tone="error">{error}</Notice>}
+
+      {couldOwn && (
+        <Notice>
+          This is your coin.{" "}
+          <button className="link-btn" onClick={() => signIn().catch((e) => setError(e.message))} disabled={signingIn}>
+            Sign in to manage it
+          </button>
+        </Notice>
+      )}
+
+      {owner && coin.status !== "live" && (
+        <Notice tone="warn">
+          This coin hasn't launched yet ({coin.status}). {coin.launchError && `Last error: ${coin.launchError}. `}
+          <Link to="/mine">Go to my coins</Link>
+        </Notice>
+      )}
+
+      {owner && coin.status === "live" && !igActive && <InstagramConnect coin={coin} launched={launched} onChange={setCoin} />}
+
+      <nav className="tabs" role="tablist">
+        {(["posts", "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
+            {t === "posts" ? "Posts" : t === "treasury" ? "Treasury" : "Settings"}
+          </button>
+        ))}
+        {owner && igActive && coin.status === "live" && tab === "posts" && (
+          <button className="btn btn-small tabs-action" onClick={generate}>
+            Make a post now
+          </button>
+        )}
+      </nav>
+
+      {tab === "posts" &&
+        (posts.length === 0 ? (
+          <p className="empty-line">
+            {igActive ? "The first post is being planned. It appears here as soon as it's made." : "Posts appear here once Instagram is connected."}
+          </p>
+        ) : (
+          <div className="posts">
+            {posts.map((p) => (
+              <PostTile key={p.id} post={p} owner={owner} onChange={load} />
+            ))}
+          </div>
+        ))}
+      {tab === "treasury" && coin.status === "live" && <TreasuryTab coin={coin} />}
+      {tab === "settings" && owner && (
+        <>
+          <SettingsTab coin={coin} onSaved={setCoin} />
+          {coin.instagram && (
+            <button
+              className="btn btn-quiet danger"
+              onClick={async () => {
+                if (!confirm("Disconnect Instagram? The character stops posting until you reconnect.")) return;
+                await api("/instagram/disconnect", { method: "POST", json: { coinId: coin.id } });
+                load();
+              }}
+            >
+              Disconnect Instagram
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

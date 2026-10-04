@@ -1,0 +1,22 @@
+{
+  "name": "reelpad",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Launch a pump.fun coin with its own AI Instagram influencer and on-chain treasury agent.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace server & npm run dev --workspace web",
+    "build": "npm run build --workspace web && npm run build --workspace server",
+    "start": "npm run start --workspace server",
+    "worker": "npm run worker --workspace server",
+    "migrate": "npm run migrate --workspace server",
+    "test": "npm run test --workspace server",
+    "typecheck": "npm run typecheck --workspace server; npm run typecheck --workspace web"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

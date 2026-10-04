@@ -1,0 +1,95 @@
+import "dotenv/config";
+import { z } from "zod";
+
+const bool = (def: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v === "" ? def : ["1", "true", "yes", "on"].includes(v.toLowerCase())));
+
+const num = (def: number) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v === "" ? def : Number(v)))
+    .pipe(z.number().finite());
+
+const schema = z.object({
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  PORT: num(8080),
+  APP_NAME: z.string().default("Reelpad"),
+  PUBLIC_URL: z.string().url(),
+  DATABASE_URL: z.string().min(1),
+  DATABASE_SSL: bool(true),
+  JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
+  MASTER_KEY: z.string().min(40, "MASTER_KEY must be a base64-encoded 32-byte key"),
+  ADMIN_WALLETS: z
+    .string()
+    .default("")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+
+  SOLANA_RPC_URL: z.string().url(),
+  PLATFORM_FEE_WALLET: z.string().min(32),
+  PLATFORM_FEE_SOL: num(0.02),
+  AGENT_GAS_FUND_SOL: num(0.01),
+  LAUNCH_PRIORITY_MICROLAMPORTS: num(200_000),
+  PUMPPORTAL_PRIORITY_FEE: num(0.00005),
+  PUMPPORTAL_SLIPPAGE: num(15),
+
+  PINATA_JWT: z.string().min(1),
+  IPFS_GATEWAY: z.string().default("https://ipfs.io/ipfs"),
+
+  S3_ENDPOINT: z.string().url(),
+  S3_REGION: z.string().default("auto"),
+  S3_BUCKET: z.string().min(1),
+  S3_ACCESS_KEY_ID: z.string().min(1),
+  S3_SECRET_ACCESS_KEY: z.string().min(1),
+  S3_PUBLIC_BASE_URL: z.string().url(),
+
+  IG_APP_ID: z.string().min(1),
+  IG_APP_SECRET: z.string().min(1),
+  IG_API_VERSION: z.string().default("v23.0"),
+  // "testers" until Meta approves the app (creators request access, an admin adds them as testers).
+  // "open" after approval: the Connect button goes straight to Instagram login for everyone.
+  IG_ACCESS_MODE: z.enum(["testers", "open"]).default("testers"),
+
+  ANTHROPIC_API_KEY: z.string().min(1),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
+
+  FAL_KEY: z.string().min(1),
+  FAL_IMAGE_MODEL: z.string().default("fal-ai/flux-pro/kontext"),
+  FAL_VIDEO_MODEL: z.string().default("fal-ai/kling-video/v2.1/standard/image-to-video"),
+  COST_IMAGE_USD: num(0.04),
+  COST_VIDEO_USD: num(0.5),
+  COST_LLM_USD: num(0.02),
+  DAILY_AI_BUDGET_USD: num(50),
+
+  CONTENT_MAX_POSTS_PER_DAY: num(3),
+  CONTENT_MAX_REELS_PER_WEEK: num(3),
+  CAPTION_FOOTER: z.string().default("AI-generated persona. Not financial advice."),
+
+  TREASURY_DRY_RUN: bool(true),
+  TREASURY_MAX_SOL_PER_ACTION: num(0.5),
+  TREASURY_MAX_SOL_PER_DAY: num(2),
+  TREASURY_MIN_INTERVAL_MIN: num(15),
+  TREASURY_GAS_RESERVE_SOL: num(0.01),
+
+  RUN_WORKER: bool(true),
+  LOG_LEVEL: z.string().default("info"),
+});
+
+export type Config = z.infer<typeof schema>;
+
+function load(): Config {
+  const parsed = schema.safeParse(process.env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
+    // eslint-disable-next-line no-console
+    console.error(`Invalid environment configuration:\n${issues}\nSee .env.example`);
+    process.exit(1);
+  }
+  return parsed.data;
+}
+
+export const config = load();
+export const isProd = config.NODE_ENV === "production";

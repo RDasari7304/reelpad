@@ -1,0 +1,156 @@
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public issues?: Array<{ path: string; message: string }>) {
+    super(message);
+  }
+}
+
+export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  const { json, headers, ...rest } = init;
+  const res = await fetch(`/api${path}`, {
+    credentials: "include",
+    ...rest,
+    headers: { ...(json !== undefined ? { "Content-Type": "application/json" } : {}), ...headers },
+    body: json !== undefined ? JSON.stringify(json) : rest.body,
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    const issue = data.issues?.[0];
+    throw new ApiError(issue ? `${issue.path}: ${issue.message}` : data.error ?? `Request failed (${res.status})`, res.status, data.issues);
+  }
+  return data as T;
+}
+
+// ---------- shared types ----------
+
+export type Format = "image" | "carousel" | "reel";
+
+export interface Persona {
+  personality: string | null;
+  personalityCustom: string;
+  objective: string | null;
+  objectiveCustom: string;
+  backstory: string;
+  voice: string;
+  visualStyle: string;
+  visualStyleCustom: string;
+  themes: string[];
+  avoid: string;
+  language: string;
+}
+
+export interface ContentSettings {
+  formats: Format[];
+  postsPerDay: number;
+  reelsPerWeek: number;
+  autoPublish: boolean;
+  hashtags: string[];
+}
+
+export type Strategy = "hold" | "dip_buyback" | "steady_buyback" | "buy_and_burn";
+
+export interface TreasurySettings {
+  enabled: boolean;
+  strategy: Strategy;
+  maxSolPerAction: number;
+  maxSolPerDay: number;
+  reserveSol: number;
+  dipPct: number;
+  intervalMin: number;
+  burnBought: boolean;
+  postAboutActions: boolean;
+}
+
+export interface Coin {
+  id: string;
+  creatorWallet: string;
+  name: string;
+  symbol: string;
+  description: string;
+  website: string | null;
+  twitter: string | null;
+  telegram: string | null;
+  imageUrl: string;
+  mint: string | null;
+  agentWallet: string;
+  status: "draft" | "awaiting_signature" | "launching" | "live" | "failed";
+  launchError: string | null;
+  launchTxSig: string | null;
+  persona: Persona;
+  contentSettings: ContentSettings;
+  treasurySettings: TreasurySettings;
+  contentPaused: boolean;
+  treasuryPaused: boolean;
+  nextPostAt: string | null;
+  launchedAt: string | null;
+  instagram?: { username: string; status?: string; picture?: string | null } | null;
+  instagramAccess?: InstagramAccess | null;
+  lastImage?: string | null;
+  postCount?: number;
+  isOwner?: boolean;
+}
+
+export interface InstagramAccess {
+  username: string;
+  status: "pending" | "invited" | "connected";
+  requestedAt: string;
+  invitedAt: string | null;
+}
+
+/** Mirrors server/src/domain/instagram.ts */
+export function normalizeInstagramUsername(input: string): string | null {
+  const u = input.trim().replace(/^@/, "").toLowerCase();
+  return /^[a-z0-9._]{1,30}$/.test(u) ? u : null;
+}
+
+export interface Post {
+  id: string;
+  format: Format;
+  status: string;
+  trigger: string;
+  concept: string | null;
+  caption: string | null;
+  media: Array<{ type: "image" | "video"; url: string; role?: string }>;
+  permalink: string | null;
+  error: string | null;
+  created_at: string;
+  published_at: string | null;
+}
+
+export interface TreasuryView {
+  agentWallet: string;
+  solBalance: number | null;
+  tokenBalance: number | null;
+  settings: TreasurySettings;
+  paused: boolean;
+  dryRun: boolean;
+  actions: Array<{
+    kind: string;
+    sol_amount: string | null;
+    token_amount: string | null;
+    tx_sig: string | null;
+    status: string;
+    reason: string;
+    dry_run: boolean;
+    created_at: string;
+  }>;
+  prices: Array<{ t: string; p: number }>;
+}
+
+export interface AppConfig {
+  appName: string;
+  platformFeeSol: number;
+  agentGasSol: number;
+  treasuryDryRun: boolean;
+  igAccessMode: "testers" | "open";
+  limits: { maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number };
+  catalog: {
+    personalities: Record<string, string>;
+    objectives: Record<string, string>;
+    visualStyles: Record<string, string>;
+  };
+}
+
+export const shortAddr = (a: string, n = 4) => `${a.slice(0, n)}…${a.slice(-n)}`;
+export const humanize = (key: string) =>
+  key.replace(/_/g, " ").replace(/^3d/, "3D").replace(/^\w/, (c) => c.toUpperCase());

@@ -1,0 +1,200 @@
+import { config } from "../config.js";
+import { PermanentError } from "../db/jobs.js";
+
+/**
+ * Instagram API with Instagram Login (Business Login for Instagram).
+ * Works with Professional (Business or Creator) accounts; no Facebook Page needed.
+ */
+const GRAPH = `https://graph.instagram.com`;
+const V = () => `${GRAPH}/${config.IG_API_VERSION}`;
+export const IG_SCOPES = ["instagram_business_basic", "instagram_business_content_publish"];
+export const redirectUri = () => `${config.PUBLIC_URL.replace(/\/$/, "")}/api/instagram/callback`;
+
+export class InstagramError extends Error {
+  constructor(message: string, public code?: number, public subcode?: number, public status?: number) {
+    super(message);
+  }
+  /** Token invalid/expired/revoked: retrying won't help until the creator reconnects. */
+  get isAuth() {
+    return this.code === 190 || this.status === 401;
+  }
+}
+
+async function igFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  const text = await res.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new InstagramError(`Instagram returned non-JSON (${res.status})`, undefined, undefined, res.status);
+  }
+  if (!res.ok || json.error) {
+    const e = json.error ?? {};
+    throw new InstagramError(
+      e.error_user_msg || e.message || `Instagram request failed (${res.status})`,
+      e.code,
+      e.error_subcode,
+      res.status,
+    );
+  }
+  return json as T;
+}
+
+const form = (params: Record<string, string>) => ({
+  method: "POST",
+  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams(params).toString(),
+});
+
+export function authorizeUrl(state: string) {
+  const u = new URL("https://www.instagram.com/oauth/authorize");
+  u.searchParams.set("client_id", config.IG_APP_ID);
+  u.searchParams.set("redirect_uri", redirectUri());
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("scope", IG_SCOPES.join(","));
+  u.searchParams.set("state", state);
+  u.searchParams.set("force_reauth", "true");
+  return u.toString();
+}
+
+export async function exchangeCode(code: string) {
+  const json = await igFetch<any>(
+    "https://api.instagram.com/oauth/access_token",
+    form({
+      client_id: config.IG_APP_ID,
+      client_secret: config.IG_APP_SECRET,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri(),
+      code: code.replace(/#_$/, ""),
+    }),
+  );
+  const row = Array.isArray(json.data) ? json.data[0] : json;
+  const permissions: string[] = String(row.permissions ?? "").split(",").map((s: string) => s.trim());
+  return { shortToken: row.access_token as string, userId: String(row.user_id), permissions };
+}
+
+export async function toLongLived(shortToken: string) {
+  const u = new URL(`${GRAPH}/access_token`);
+  u.searchParams.set("grant_type", "ig_exchange_token");
+  u.searchParams.set("client_secret", config.IG_APP_SECRET);
+  u.searchParams.set("access_token", shortToken);
+  const json = await igFetch<{ access_token: string; expires_in: number }>(u.toString());
+  return { token: json.access_token, expiresAt: new Date(Date.now() + json.expires_in * 1000) };
+}
+
+export async function refreshToken(token: string) {
+  const u = new URL(`${GRAPH}/refresh_access_token`);
+  u.searchParams.set("grant_type", "ig_refresh_token");
+  u.searchParams.set("access_token", token);
+  const json = await igFetch<{ access_token: string; expires_in: number }>(u.toString());
+  return { token: json.access_token, expiresAt: new Date(Date.now() + json.expires_in * 1000) };
+}
+
+export async function getMe(token: string) {
+  const u = new URL(`${V()}/me`);
+  u.searchParams.set("fields", "user_id,username,account_type,profile_picture_url");
+  u.searchParams.set("access_token", token);
+  const me = await igFetch<{ user_id?: string; id: string; username: string; account_type?: string; profile_picture_url?: string }>(
+    u.toString(),
+  );
+  return { igUserId: String(me.user_id ?? me.id), username: me.username, accountType: me.account_type ?? null, picture: me.profile_picture_url ?? null };
+}
+
+// ---------- publishing ----------
+
+async function createContainer(igUserId: string, token: string, params: Record<string, string>) {
+  const json = await igFetch<{ id: string }>(`${V()}/${igUserId}/media`, form({ ...params, access_token: token }));
+  return json.id;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Waits until a container is FINISHED (videos are transcoded asynchronously). */
+async function waitForContainer(containerId: string, token: string, timeoutMs = 10 * 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const u = new URL(`${V()}/${containerId}`);
+    u.searchParams.set("fields", "status_code,status");
+    u.searchParams.set("access_token", token);
+    const s = await igFetch<{ status_code: string; status?: string }>(u.toString());
+    if (s.status_code === "FINISHED") return;
+    if (s.status_code === "ERROR" || s.status_code === "EXPIRED") {
+      throw new PermanentError(`Instagram could not process the media: ${s.status ?? s.status_code}`);
+    }
+    await sleep(5000);
+  }
+  throw new Error("Timed out waiting for Instagram to process media");
+}
+
+/** Used on retries: a container that is already PUBLISHED must not be published twice. */
+export async function containerStatus(containerId: string, token: string): Promise<string | null> {
+  const u = new URL(`${V()}/${containerId}`);
+  u.searchParams.set("fields", "status_code");
+  u.searchParams.set("access_token", token);
+  try {
+    return (await igFetch<{ status_code: string }>(u.toString())).status_code;
+  } catch {
+    return null;
+  }
+}
+
+async function publishContainer(igUserId: string, token: string, containerId: string) {
+  const json = await igFetch<{ id: string }>(
+    `${V()}/${igUserId}/media_publish`,
+    form({ creation_id: containerId, access_token: token }),
+  );
+  return json.id;
+}
+
+async function getPermalink(mediaId: string, token: string) {
+  const u = new URL(`${V()}/${mediaId}`);
+  u.searchParams.set("fields", "permalink");
+  u.searchParams.set("access_token", token);
+  try {
+    return (await igFetch<{ permalink?: string }>(u.toString())).permalink ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface PublishInput {
+  igUserId: string;
+  token: string;
+  format: "image" | "carousel" | "reel";
+  caption: string;
+  mediaUrls: string[]; // images for image/carousel; [videoUrl, coverImageUrl?] for reel
+}
+
+export async function publish(input: PublishInput, onContainer?: (id: string) => Promise<void>) {
+  const { igUserId, token, caption } = input;
+  let containerId: string;
+
+  if (input.format === "image") {
+    containerId = await createContainer(igUserId, token, { image_url: input.mediaUrls[0]!, caption });
+  } else if (input.format === "carousel") {
+    const urls = input.mediaUrls.slice(0, 10);
+    if (urls.length < 2) throw new PermanentError("A carousel needs at least 2 images");
+    const children: string[] = [];
+    for (const url of urls) {
+      children.push(await createContainer(igUserId, token, { image_url: url, is_carousel_item: "true" }));
+    }
+    for (const c of children) await waitForContainer(c, token, 2 * 60_000);
+    containerId = await createContainer(igUserId, token, { media_type: "CAROUSEL", children: children.join(","), caption });
+  } else {
+    const params: Record<string, string> = {
+      media_type: "REELS",
+      video_url: input.mediaUrls[0]!,
+      caption,
+      share_to_feed: "true",
+    };
+    if (input.mediaUrls[1]) params.cover_url = input.mediaUrls[1];
+    containerId = await createContainer(igUserId, token, params);
+  }
+
+  await onContainer?.(containerId);
+  await waitForContainer(containerId, token);
+  const mediaId = await publishContainer(igUserId, token, containerId);
+  const permalink = await getPermalink(mediaId, token);
+  return { containerId, mediaId, permalink };
+}

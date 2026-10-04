@@ -1,0 +1,69 @@
+# Render Blueprint: one web service (API + frontend + background worker) and a Postgres database.
+# Use at least the Starter plan: free instances sleep, which stops scheduled posts and treasury runs.
+# To scale, set RUN_WORKER=false on the web service and add a separate `type: worker` running `npm run worker`.
+services:
+  - type: web
+    name: reelpad
+    runtime: node
+    plan: starter
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: reelpad-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "false"
+      - key: RUN_WORKER
+        value: "true"
+      - key: TREASURY_DRY_RUN
+        value: "true"
+      # Switch to "open" once Meta approves the app
+      - key: IG_ACCESS_MODE
+        value: testers
+      - key: JWT_SECRET
+        generateValue: true
+      # Set these in the dashboard (see .env.example for descriptions):
+      - key: PUBLIC_URL
+        sync: false
+      - key: MASTER_KEY
+        sync: false
+      - key: ADMIN_WALLETS
+        sync: false
+      - key: SOLANA_RPC_URL
+        sync: false
+      - key: VITE_SOLANA_RPC_URL
+        sync: false
+      - key: PLATFORM_FEE_WALLET
+        sync: false
+      - key: PINATA_JWT
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PUBLIC_BASE_URL
+        sync: false
+      - key: IG_APP_ID
+        sync: false
+      - key: IG_APP_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: FAL_KEY
+        sync: false
+
+databases:
+  - name: reelpad-db
+    plan: basic-256mb
+    databaseName: reelpad
