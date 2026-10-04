@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { query } from "../db/pool.js";
 import { bucketCandles, parseOhlcv, TIMEFRAMES, type Candle, type Timeframe } from "../domain/chart.js";
 import { logger } from "../lib/logger.js";
-import { getPriceSol } from "./solana.js";
+import { connection, getPriceSol, WSOL_MINT } from "./solana.js";
 
 /**
  * Price candles for a coin. The server fetches them (cached) from GeckoTerminal's free public API,
@@ -17,7 +17,10 @@ const chartCache = new Map<string, { at: number; value: ChartData }>();
 
 export interface ChartData {
   source: "geckoterminal" | "reelpad";
+  /** Candles are market cap (price × circulating supply), like DexScreener's "Mcap" view. */
+  metric: "mcap";
   currency: "USD" | "SOL";
+  supply: number;
   timeframe: Timeframe;
   candles: Candle[];
   updatedAt: string;
@@ -52,6 +55,39 @@ async function topPool(mint: string): Promise<string | null> {
   return pool;
 }
 
+const supplyCache = new Map<string, { at: number; supply: number }>();
+/** Current token supply (pump.fun coins start at 1 billion; burns lower it). */
+async function tokenSupply(mint: string): Promise<number> {
+  const hit = supplyCache.get(mint);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.supply;
+  let supply = 1_000_000_000;
+  try {
+    const r = await connection.getTokenSupply(new PublicKey(mint), "confirmed");
+    if (r.value.uiAmount && r.value.uiAmount > 0) supply = r.value.uiAmount;
+  } catch (e) {
+    logger.warn({ mint, err: (e as Error).message }, "token supply lookup failed");
+  }
+  supplyCache.set(mint, { at: Date.now(), supply });
+  return supply;
+}
+
+let solUsdCache: { at: number; usd: number | null } | null = null;
+async function solUsd(): Promise<number | null> {
+  if (solUsdCache && Date.now() - solUsdCache.at < 60_000) return solUsdCache.usd;
+  let usd: number | null = null;
+  try {
+    const r = await fetch(`https://lite-api.jup.ag/price/v3?ids=${WSOL_MINT}`);
+    if (r.ok) usd = ((await r.json()) as Record<string, { usdPrice?: number }>)[WSOL_MINT]?.usdPrice ?? null;
+  } catch {
+    /* fall back to SOL */
+  }
+  solUsdCache = { at: Date.now(), usd };
+  return usd;
+}
+
+const scale = (candles: Candle[], k: number): Candle[] =>
+  candles.map((c) => ({ t: c.t, o: c.o * k, h: c.h * k, l: c.l * k, c: c.c * k, v: c.v }));
+
 async function fromGeckoTerminal(mint: string, tf: Timeframe): Promise<Candle[]> {
   const pool = await topPool(mint);
   if (!pool) return [];
@@ -80,12 +116,15 @@ export async function getChart(coinId: string, mint: string, tf: Timeframe): Pro
   if (hit && Date.now() - hit.at < 45_000) return hit.value;
 
   let value: ChartData;
-  const gtCandles = await fromGeckoTerminal(mint, tf);
-  if (gtCandles.length >= 2) {
-    value = { source: "geckoterminal", currency: "USD", timeframe: tf, candles: gtCandles, updatedAt: new Date().toISOString() };
+  const [gtCandles, supply] = await Promise.all([fromGeckoTerminal(mint, tf), tokenSupply(mint)]);
+  const base = { metric: "mcap" as const, supply, timeframe: tf, updatedAt: new Date().toISOString() };
+  if (gtCandles.length >= 1) {
+    value = { ...base, source: "geckoterminal", currency: "USD", candles: scale(gtCandles, supply) };
   } else {
-    const own = await fromSnapshots(coinId, mint, tf);
-    value = { source: "reelpad", currency: "SOL", timeframe: tf, candles: own, updatedAt: new Date().toISOString() };
+    const [own, usd] = await Promise.all([fromSnapshots(coinId, mint, tf), solUsd()]);
+    value = usd
+      ? { ...base, source: "reelpad", currency: "USD", candles: scale(own, supply * usd) }
+      : { ...base, source: "reelpad", currency: "SOL", candles: scale(own, supply) };
   }
   chartCache.set(key, { at: Date.now(), value });
   if (chartCache.size > 2000) chartCache.delete(chartCache.keys().next().value!);

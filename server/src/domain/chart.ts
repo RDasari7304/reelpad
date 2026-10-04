@@ -1,5 +1,6 @@
 /** Chart timeframes: candle size and how many candles to show. */
 export const TIMEFRAMES = {
+  "1m": { unit: "minute", aggregate: 1, limit: 360, seconds: 60 },
   "5m": { unit: "minute", aggregate: 5, limit: 288, seconds: 300 },
   "15m": { unit: "minute", aggregate: 15, limit: 192, seconds: 900 },
   "1h": { unit: "hour", aggregate: 1, limit: 168, seconds: 3600 },
