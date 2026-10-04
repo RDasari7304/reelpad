@@ -28,8 +28,6 @@ export type Format = "image" | "carousel" | "reel";
 export interface Persona {
   personality: string | null;
   personalityCustom: string;
-  objective: string | null;
-  objectiveCustom: string;
   backstory: string;
   voice: string;
   visualStyle: string;
@@ -45,20 +43,7 @@ export interface ContentSettings {
   reelsPerWeek: number;
   autoPublish: boolean;
   hashtags: string[];
-}
-
-export type Strategy = "hold" | "dip_buyback" | "steady_buyback" | "buy_and_burn";
-
-export interface TreasurySettings {
-  enabled: boolean;
-  strategy: Strategy;
-  maxSolPerAction: number;
-  maxSolPerDay: number;
-  reserveSol: number;
-  dipPct: number;
-  intervalMin: number;
-  burnBought: boolean;
-  postAboutActions: boolean;
+  postAboutBurns?: boolean;
 }
 
 export interface Coin {
@@ -78,7 +63,6 @@ export interface Coin {
   launchTxSig: string | null;
   persona: Persona;
   contentSettings: ContentSettings;
-  treasurySettings: TreasurySettings;
   contentPaused: boolean;
   treasuryPaused: boolean;
   nextPostAt: string | null;
@@ -120,8 +104,8 @@ export interface Post {
 export interface TreasuryView {
   agentWallet: string;
   solBalance: number | null;
-  tokenBalance: number | null;
-  settings: TreasurySettings;
+  totals: { feesCollectedSol: number; boughtBackSol: number; tokensBurned: number; burns: number };
+  rules: { minBuySol: number; buyIntervalMin: number; maxSolPerBuy: number; maxSolPerDay: number; gasReserveSol: number };
   paused: boolean;
   dryRun: boolean;
   actions: Array<{
@@ -143,10 +127,9 @@ export interface AppConfig {
   agentGasSol: number;
   treasuryDryRun: boolean;
   igAccessMode: "testers" | "open";
-  limits: { maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number };
+  limits: { maxPostsPerDay: number; maxReelsPerWeek: number; treasuryMaxSolPerAction: number; treasuryMaxSolPerDay: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
   catalog: {
     personalities: Record<string, string>;
-    objectives: Record<string, string>;
     visualStyles: Record<string, string>;
   };
 }

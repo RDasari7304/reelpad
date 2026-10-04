@@ -1011,6 +1011,179 @@ textarea.input {
   color: var(--violet-deep);
   margin-left: 6px;
 }
+/* ---------- buyback and burn ---------- */
+.burn-cycle {
+  list-style: none;
+  counter-reset: burn;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.burn-cycle li {
+  counter-increment: burn;
+  position: relative;
+  padding: 44px 16px 16px;
+  background: var(--print);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.burn-cycle li::before {
+  content: counter(burn);
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--violet);
+  color: #fff;
+  font: 700 12px/24px var(--display);
+  text-align: center;
+}
+.burn-cycle strong {
+  display: block;
+  color: var(--ink);
+  font-size: var(--t-base);
+  margin-bottom: 2px;
+}
+.treasury-lede {
+  font-size: var(--t-md);
+  margin: 0 0 16px;
+  max-width: 52ch;
+}
+
+/* ---------- admin: coins and Instagram access ---------- */
+.page.admin {
+  max-width: 1080px;
+}
+.admin-coins-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 16px;
+}
+.chip-count {
+  margin-left: 4px;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.admin-search {
+  flex: 0 1 320px;
+}
+.admin-coin-list {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  background: var(--print);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.admin-coin {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) 300px;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.admin-coin:last-child {
+  border-bottom: none;
+}
+.admin-coin.is-pending {
+  background: var(--violet-wash);
+}
+.admin-coin > img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.admin-coin-main,
+.admin-coin-ig {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.admin-coin-name {
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-coin-name span {
+  color: var(--violet-deep);
+  font-weight: 600;
+  margin-left: 4px;
+}
+.admin-coin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: var(--t-sm);
+}
+.admin-wallet {
+  font: 500 var(--t-sm) var(--mono);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.admin-wallet:hover {
+  color: var(--ink);
+}
+.ig-state {
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+.ig-state-pending {
+  color: var(--violet-deep);
+  font-weight: 600;
+}
+.ig-state-connected {
+  color: var(--live);
+  font-weight: 600;
+}
+.ig-state-expired,
+.ig-state-disconnected {
+  color: var(--warn);
+}
+.admin-coin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.admin-coin .username-form {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .admin-coin {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .admin-coin-ig,
+  .admin-coin-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .admin-coin-actions .btn-quiet {
+    padding-left: 0;
+  }
+  .admin-search {
+    flex-basis: 100%;
+  }
+}
 .tabs {
   display: flex;
   align-items: center;

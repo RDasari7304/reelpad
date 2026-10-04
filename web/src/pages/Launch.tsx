@@ -2,16 +2,14 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, humanize, normalizeInstagramUsername, type AppConfig, type Coin, type ContentSettings, type Persona, type TreasurySettings } from "../api";
+import { api, ApiError, humanize, normalizeInstagramUsername, type AppConfig, type Coin, type ContentSettings, type Persona } from "../api";
 import { Field, Notice } from "../components";
 import {
   ContentEditor,
   defaultContent,
   defaultPersona,
-  defaultTreasury,
   PersonaEditor,
-  strategyFor,
-  TreasuryEditor,
+  TreasuryExplainer,
 } from "../editors";
 import { decodeTx, signAndLaunch } from "../launchTx";
 import { useSession } from "../session";
@@ -93,8 +91,6 @@ export default function Launch() {
   const [preview, setPreview] = useState<string | null>(null);
   const [persona, setPersona] = useState<Persona>(defaultPersona);
   const [content, setContent] = useState<ContentSettings>(defaultContent);
-  const [treasury, setTreasury] = useState<TreasurySettings>(defaultTreasury);
-  const [treasuryTouched, setTreasuryTouched] = useState(false);
   const [igUsername, setIgUsername] = useState("");
   const [devBuy, setDevBuy] = useState("0");
   const [accepted, setAccepted] = useState(false);
@@ -110,12 +106,6 @@ export default function Launch() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  // Suggest a treasury strategy from the objective until the creator edits the treasury themselves.
-  useEffect(() => {
-    if (treasuryTouched) return;
-    const s = strategyFor(persona.objective);
-    setTreasury((t) => ({ ...t, strategy: s, enabled: s !== "hold" }));
-  }, [persona.objective, treasuryTouched]);
 
   const devBuySol = Number(devBuy) || 0;
   const total = useMemo(
@@ -156,7 +146,6 @@ export default function Launch() {
             instagramUsername: igUsername.trim() || undefined,
             persona,
             contentSettings: content,
-            treasurySettings: treasury,
           }),
         );
         current = (await api<{ coin: Coin }>("/coins", { method: "POST", body: form })).coin;
@@ -278,17 +267,10 @@ export default function Launch() {
 
         <section className="step">
           <h2>
-            <span className="step-n">4</span> Treasury
+            <span className="step-n">4</span> Buyback and burn
           </h2>
-          <TreasuryEditor
-            value={treasury}
-            onChange={(t) => {
-              setTreasuryTouched(true);
-              setTreasury(t);
-            }}
-            config={config}
-          />
-          {config.treasuryDryRun && <Notice tone="warn">Treasury trading is in simulation mode on this site: trades are logged but not sent.</Notice>}
+          <TreasuryExplainer config={config} />
+          {config.treasuryDryRun && <Notice tone="warn">Buybacks are in simulation mode on this site right now: they're logged but not sent on-chain yet.</Notice>}
         </section>
 
         <section className="step">
@@ -331,7 +313,7 @@ export default function Launch() {
             <span>
               <strong>I understand</strong>
               <small>
-                The coin is created on pump.fun from my wallet, its creator fees go to an AI-run treasury I can't withdraw from, and
+                The coin is created on pump.fun from my wallet, its creator fees go to an AI-run treasury that automatically buys back and burns the coin, I can't withdraw from it, and
                 the AI character posts publicly on the Instagram account I connect. I've read the Terms.
               </small>
             </span>

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import { captionViolations, finalizeCaption } from "../src/domain/caption.ts";
-import { defaultStrategyFor } from "../src/domain/catalog.ts";
+import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
 import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
 import { chooseFormat, nextPostAt } from "../src/domain/schedule.ts";
-import { decide, spendCap, type PolicyInput } from "../src/domain/treasuryPolicy.ts";
+import { decideBuyback, spendable, type BuybackInput } from "../src/domain/treasuryPolicy.ts";
 import { decrypt, decryptString, encrypt, parseMasterKey } from "../src/lib/crypto.ts";
 import { signRequest, uriEncode } from "../src/lib/sigv4.ts";
 
@@ -62,65 +62,48 @@ describe("sigv4", () => {
   });
 });
 
-const base: PolicyInput = {
-  strategy: "steady_buyback",
-  user: { maxSolPerAction: 0.1, maxSolPerDay: 0.3, reserveSol: 0.05, dipPct: 15, intervalMin: 60 },
-  platform: { maxSolPerAction: 0.5, maxSolPerDay: 2, gasReserveSol: 0.01, minIntervalMin: 15 },
-  solBalance: 1,
+const base: BuybackInput = {
+  solBalance: 0.5,
   spentTodaySol: 0,
   minutesSinceLastBuy: null,
-  priceNow: 1,
-  priceHigh24h: 1,
+  limits: { gasReserveSol: 0.01, minBuySol: 0.01, maxSolPerBuy: 0.5, maxSolPerDay: 2, intervalMin: 60 },
 };
 
-describe("treasury policy", () => {
-  it("never buys on hold", () => {
-    assert.equal(decide({ ...base, strategy: "hold" }).action, "skip");
-  });
-  it("respects the per-action cap", () => {
-    const d = decide(base);
+describe("buyback-and-burn policy", () => {
+  it("spends collected fees above the gas reserve", () => {
+    const d = decideBuyback(base);
     assert.equal(d.action, "buy");
-    assert.ok(d.action === "buy" && d.sol <= 0.1);
+    assert.ok(d.action === "buy" && Math.abs(d.sol - 0.49) < 1e-9);
   });
-  it("applies the stricter of user and platform caps", () => {
-    const d = decide({ ...base, user: { ...base.user, maxSolPerAction: 5, maxSolPerDay: 50 }, platform: { ...base.platform, maxSolPerAction: 0.02 } });
-    assert.ok(d.action === "buy" && d.sol <= 0.02);
-  });
-  it("stops at the daily limit", () => {
-    const d = decide({ ...base, spentTodaySol: 0.3 });
-    assert.equal(d.action, "skip");
-    assert.match(d.reason, /Daily limit/);
-  });
-  it("keeps the reserve and gas", () => {
-    assert.equal(decide({ ...base, solBalance: 0.06 }).action, "skip");
-    assert.equal(spendCap({ ...base, solBalance: 0.06 }), 0);
-    const d = decide({ ...base, solBalance: 0.1 });
-    assert.ok(d.action === "buy" && d.sol <= 0.1 - 0.05 - 0.01);
-  });
-  it("enforces the cooldown using the larger interval", () => {
-    assert.equal(decide({ ...base, minutesSinceLastBuy: 30 }).action, "skip");
-    assert.equal(decide({ ...base, minutesSinceLastBuy: 61 }).action, "buy");
-    assert.equal(decide({ ...base, user: { ...base.user, intervalMin: 5 }, minutesSinceLastBuy: 10 }).action, "skip");
-  });
-  it("only buys dips past the threshold", () => {
-    const dip = { ...base, strategy: "dip_buyback" as const };
-    assert.equal(decide({ ...dip, priceNow: 0.9, priceHigh24h: 1 }).action, "skip");
-    const d = decide({ ...dip, priceNow: 0.8, priceHigh24h: 1 });
-    assert.equal(d.action, "buy");
-    assert.equal(decide({ ...dip, priceNow: null }).action, "skip");
-  });
-  it("never exceeds what is spendable even with a big balance", () => {
-    for (const bal of [0.07, 0.2, 5, 1000]) {
-      const d = decide({ ...base, solBalance: bal });
-      if (d.action === "buy") assert.ok(d.sol <= Math.min(0.1, bal - 0.06) + 1e-9);
+  it("always keeps the gas reserve", () => {
+    for (const bal of [0.011, 0.02, 0.3, 0.51]) {
+      const d = decideBuyback({ ...base, solBalance: bal });
+      if (d.action === "buy") assert.ok(d.sol <= bal - 0.01 + 1e-9);
     }
+    assert.equal(spendable({ ...base, solBalance: 0.005 }), 0);
   });
-  it("maps objectives to strategies", () => {
-    assert.equal(defaultStrategyFor("buy_and_burn"), "buy_and_burn");
-    assert.equal(defaultStrategyFor("deflation"), "buy_and_burn");
-    assert.equal(defaultStrategyFor("buy_back_on_dips"), "dip_buyback");
-    assert.equal(defaultStrategyFor("meme_engine"), "hold");
-    assert.equal(defaultStrategyFor(null), "hold");
+  it("waits until enough fees have collected", () => {
+    const d = decideBuyback({ ...base, solBalance: 0.015 });
+    assert.equal(d.action, "skip");
+    assert.match(d.reason, /Collecting creator fees/);
+  });
+  it("caps each buyback", () => {
+    const d = decideBuyback({ ...base, solBalance: 10 });
+    assert.ok(d.action === "buy" && d.sol <= 0.5);
+  });
+  it("caps daily spending and carries the rest over", () => {
+    const near = decideBuyback({ ...base, solBalance: 10, spentTodaySol: 1.8 });
+    assert.ok(near.action === "buy" && near.sol <= 0.2 + 1e-9);
+    const done = decideBuyback({ ...base, solBalance: 10, spentTodaySol: 2 });
+    assert.equal(done.action, "skip");
+    assert.match(done.reason, /Daily buyback limit/);
+  });
+  it("spaces buybacks out", () => {
+    assert.equal(decideBuyback({ ...base, minutesSinceLastBuy: 30 }).action, "skip");
+    assert.equal(decideBuyback({ ...base, minutesSinceLastBuy: 61 }).action, "buy");
+  });
+  it("never buys with an empty treasury", () => {
+    assert.equal(decideBuyback({ ...base, solBalance: 0 }).action, "skip");
   });
 });
 
@@ -192,14 +175,19 @@ describe("persona", () => {
   it("builds a brief from catalog keys and custom text", () => {
     const brief = personaBrief(
       { name: "Moon Cat", symbol: "MCAT", description: "A cat on the moon" },
-      { personality: "stoic", objective: "custom", objectiveCustom: "Collect moon rocks", themes: ["space", "naps"], language: "Spanish" },
+      { personality: "deadpan", themes: ["space", "naps"], language: "Spanish" },
     );
     assert.match(brief, /Moon Cat \(\$MCAT\)/);
-    assert.match(brief, /Calm, measured/);
-    assert.match(brief, /Collect moon rocks/);
+    assert.match(brief, /deadpan/i);
+    assert.match(brief, /buy back \$MCAT and burn it/);
     assert.match(brief, /space, naps/);
     assert.match(brief, /Spanish/);
     assert.match(CONTENT_RULES, /Never give financial advice/);
+  });
+  it("keeps legacy personalities working", () => {
+    assert.match(personaBrief({ name: "A", symbol: "A", description: "" }, { personality: "stoic" }), /Calm, measured/);
+    assert.match(personaBrief({ name: "A", symbol: "A", description: "" }, { personality: "custom", personalityCustom: "A pirate" }), /A pirate/);
+    for (const k of Object.keys(PERSONALITIES)) assert.ok(!(k in LEGACY_PERSONALITIES), `${k} clashes with a legacy key`);
   });
   it("defaults the visual style", () => {
     assert.match(visualStyleText({}), /3D render/);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OBJECTIVES, PERSONALITIES, VISUAL_STYLES } from "./catalog.js";
+import { ALL_PERSONALITIES, VISUAL_STYLES } from "./catalog.js";
 import { INSTAGRAM_USERNAME_MESSAGE, normalizeInstagramUsername } from "./instagram.js";
 
 const keyOrCustom = (keys: readonly string[]) =>
@@ -7,10 +7,9 @@ const keyOrCustom = (keys: readonly string[]) =>
 
 export const personaSchema = z
   .object({
-    personality: keyOrCustom(Object.keys(PERSONALITIES)),
+    // Current and legacy personality keys are both accepted, so older coins can still save their settings.
+    personality: keyOrCustom(Object.keys(ALL_PERSONALITIES)),
     personalityCustom: z.string().max(400).optional().default(""),
-    objective: keyOrCustom(Object.keys(OBJECTIVES)),
-    objectiveCustom: z.string().max(400).optional().default(""),
     backstory: z.string().max(1500).optional().default(""),
     voice: z.string().max(400).optional().default(""),
     visualStyle: z.union([z.enum(Object.keys(VISUAL_STYLES) as [string, ...string[]]), z.literal("custom")]).default("3d_render"),
@@ -22,8 +21,6 @@ export const personaSchema = z
   .superRefine((p, ctx) => {
     if (p.personality === "custom" && !p.personalityCustom.trim())
       ctx.addIssue({ code: "custom", path: ["personalityCustom"], message: "Describe the custom personality" });
-    if (p.objective === "custom" && !p.objectiveCustom.trim())
-      ctx.addIssue({ code: "custom", path: ["objectiveCustom"], message: "Describe the custom objective" });
     if (p.visualStyle === "custom" && !p.visualStyleCustom.trim())
       ctx.addIssue({ code: "custom", path: ["visualStyleCustom"], message: "Describe the custom visual style" });
   });
@@ -34,18 +31,8 @@ export const contentSettingsSchema = z.object({
   reelsPerWeek: z.number().int().min(0).max(7).default(1),
   autoPublish: z.boolean().default(true),
   hashtags: z.array(z.string().regex(/^[\p{L}\p{N}_]{1,40}$/u, "Hashtags: letters, numbers, underscores")).max(8).default([]),
-});
-
-export const treasurySettingsSchema = z.object({
-  enabled: z.boolean().default(false),
-  strategy: z.enum(["hold", "dip_buyback", "steady_buyback", "buy_and_burn"]).default("hold"),
-  maxSolPerAction: z.number().min(0.001).max(10).default(0.05),
-  maxSolPerDay: z.number().min(0.001).max(50).default(0.2),
-  reserveSol: z.number().min(0).max(1000).default(0.05),
-  dipPct: z.number().min(5).max(80).default(15),
-  intervalMin: z.number().int().min(15).max(1440).default(60),
-  burnBought: z.boolean().default(false),
-  postAboutActions: z.boolean().default(true),
+  // Post (at most once a day) when the treasury buys back and burns the coin.
+  postAboutBurns: z.boolean().default(true),
 });
 
 const optionalUrl = z
@@ -86,10 +73,8 @@ export const coinDraftSchema = z.object({
   telegram: optionalUrl,
   persona: personaSchema,
   contentSettings: contentSettingsSchema,
-  treasurySettings: treasurySettingsSchema,
 });
 
 export type Persona = z.infer<typeof personaSchema>;
 export type ContentSettings = z.infer<typeof contentSettingsSchema>;
-export type TreasurySettings = z.infer<typeof treasurySettingsSchema>;
 export type CoinDraft = z.infer<typeof coinDraftSchema>;

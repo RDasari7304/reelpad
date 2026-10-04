@@ -2,10 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
 import { query } from "../db/pool.js";
+import { instagramUsernameSchema } from "../domain/schemas.js";
+import { upsertAccessRequest } from "../services/instagramAccess.js";
 import { getKillSwitch, setKillSwitch } from "../services/settings.js";
 import { todaySpend } from "../services/spend.js";
 import { requireAdmin } from "./auth.js";
-import { asyncHandler } from "./util.js";
+import { asyncHandler, HttpError } from "./util.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
@@ -27,7 +29,6 @@ adminRouter.get(
       aiBudget: config.DAILY_AI_BUDGET_USD,
       treasuryDryRun: config.TREASURY_DRY_RUN,
       igAccessMode: config.IG_ACCESS_MODE,
-      igAppId: config.IG_APP_ID,
       coins: counts.rows,
       posts24h: posts.rows,
       failedJobs24h: failedJobs.rows,
@@ -46,27 +47,76 @@ adminRouter.post(
   }),
 );
 
-/** Tester queue: accounts waiting to be added as Instagram testers, and ones invited but not yet connected. */
+type AccessState = "none" | "pending" | "invited" | "connected" | "expired" | "disconnected";
+
+function accessState(r: { req_status: string | null; ig_status: string | null }): AccessState {
+  if (r.ig_status === "active") return "connected";
+  if (r.ig_status === "expired") return "expired";
+  if (r.ig_status === "revoked") return "disconnected";
+  if (r.req_status === "pending" || r.req_status === "invited") return r.req_status;
+  return "none";
+}
+
+/**
+ * Every coin created so far, with its creator and where it is in the Instagram access flow.
+ * Used to add creators as Instagram Testers by hand while the Meta app is unapproved.
+ */
 adminRouter.get(
-  "/instagram-requests",
-  asyncHandler(async (_req, res) => {
-    const rows = await query(
-      `SELECT r.coin_id, r.username, r.status, r.requested_at, r.invited_at, c.name, c.symbol, c.image_url, c.status AS coin_status
-       FROM instagram_access_requests r JOIN coins c ON c.id = r.coin_id
-       WHERE r.status IN ('pending','invited')
-       ORDER BY r.status = 'pending' DESC, r.requested_at ASC
-       LIMIT 200`,
-    );
+  "/coins",
+  asyncHandler(async (req, res) => {
+    const q = typeof req.query.q === "string" && req.query.q.trim() ? `%${req.query.q.trim()}%` : null;
+    const [rows, testers] = await Promise.all([
+      query(
+        `SELECT c.id, c.name, c.symbol, c.image_url, c.mint, c.creator_wallet, c.status, c.created_at, c.launched_at,
+                r.username AS req_username, r.status AS req_status, r.requested_at, r.invited_at,
+                i.username AS ig_username, i.status AS ig_status
+         FROM coins c
+         LEFT JOIN instagram_access_requests r ON r.coin_id = c.id
+         LEFT JOIN instagram_accounts i ON i.coin_id = c.id
+         WHERE ($1::text IS NULL OR c.name ILIKE $1 OR c.symbol ILIKE $1 OR c.creator_wallet ILIKE $1
+                OR r.username ILIKE $1 OR i.username ILIKE $1 OR c.mint ILIKE $1)
+         ORDER BY c.created_at DESC
+         LIMIT 500`,
+        [q],
+      ),
+      query<{ n: number }>(`SELECT count(*)::int AS n FROM instagram_access_requests WHERE status IN ('invited','connected')`),
+    ]);
     res.json({
-      requests: rows.rows.map((r: any) => ({
-        coinId: r.coin_id,
-        username: r.username,
+      accessMode: config.IG_ACCESS_MODE,
+      metaRolesUrl: config.META_APP_ID
+        ? `https://developers.facebook.com/apps/${encodeURIComponent(config.META_APP_ID)}/roles/roles/`
+        : "https://developers.facebook.com/apps/",
+      testersUsed: testers.rows[0]?.n ?? 0,
+      coins: rows.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        symbol: r.symbol,
+        imageUrl: r.image_url,
+        mint: r.mint,
+        creatorWallet: r.creator_wallet,
         status: r.status,
-        requestedAt: r.requested_at,
-        invitedAt: r.invited_at,
-        coin: { name: r.name, symbol: r.symbol, imageUrl: r.image_url, status: r.coin_status },
+        createdAt: r.created_at,
+        launchedAt: r.launched_at,
+        access: {
+          state: accessState(r),
+          username: r.ig_status === "active" ? r.ig_username : (r.req_username ?? r.ig_username ?? null),
+          requestedAt: r.requested_at,
+          invitedAt: r.invited_at,
+        },
       })),
     });
+  }),
+);
+
+/** Admin sets or corrects a coin's Instagram username (e.g. the creator sent it by DM). */
+adminRouter.put(
+  "/coins/:id/instagram-access",
+  asyncHandler(async (req, res) => {
+    const coinId = z.string().uuid().parse(req.params.id);
+    const { username } = z.object({ username: instagramUsernameSchema }).parse(req.body);
+    const exists = await query(`SELECT 1 FROM coins WHERE id = $1`, [coinId]);
+    if (!exists.rowCount) throw new HttpError(404, "Coin not found");
+    res.json({ instagramAccess: await upsertAccessRequest(coinId, username) });
   }),
 );
 

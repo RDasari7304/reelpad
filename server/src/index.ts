@@ -15,7 +15,7 @@ import { authRouter, readSession } from "./http/auth.js";
 import { coinsRouter, postsRouter } from "./http/coins.js";
 import { instagramRouter } from "./http/instagram.js";
 import { errorHandler } from "./http/util.js";
-import { OBJECTIVES, PERSONALITIES, VISUAL_STYLES } from "./domain/catalog.js";
+import { PERSONALITIES, VISUAL_STYLES } from "./domain/catalog.js";
 import { logger } from "./lib/logger.js";
 import { startWorker } from "./worker/index.js";
 
@@ -73,8 +73,10 @@ app.get("/api/config", (_req, res) => {
       maxReelsPerWeek: config.CONTENT_MAX_REELS_PER_WEEK,
       treasuryMaxSolPerAction: config.TREASURY_MAX_SOL_PER_ACTION,
       treasuryMaxSolPerDay: config.TREASURY_MAX_SOL_PER_DAY,
+      treasuryMinBuySol: config.TREASURY_MIN_BUY_SOL,
+      treasuryBuyIntervalMin: config.TREASURY_BUY_INTERVAL_MIN,
     },
-    catalog: { personalities: PERSONALITIES, objectives: OBJECTIVES, visualStyles: VISUAL_STYLES },
+    catalog: { personalities: PERSONALITIES, visualStyles: VISUAL_STYLES },
   });
 });
 

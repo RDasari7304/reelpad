@@ -3,7 +3,6 @@ import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { config } from "../config.js";
 import { one, query } from "../db/pool.js";
-import { defaultStrategyFor } from "../domain/catalog.js";
 import type { CoinDraft } from "../domain/schemas.js";
 import { logger } from "../lib/logger.js";
 import { openKeypair, sealKeypair } from "../lib/secrets.js";
@@ -26,8 +25,8 @@ export async function createDraft(wallet: string, draft: CoinDraft, image: Buffe
   const agent = Keypair.generate();
   const mint = Keypair.generate();
 
-  const ts = { ...draft.treasurySettings };
-  if (ts.strategy === "hold" && ts.enabled) ts.strategy = defaultStrategyFor(draft.persona.objective);
+  // Every treasury runs the same automatic buyback-and-burn; nothing for the creator to configure.
+  const ts = { mode: "buyback_burn" };
 
   // Insert first to get the coin id for the storage path.
   const row = await one<CoinRow>(

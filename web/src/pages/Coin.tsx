@@ -1,9 +1,9 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, type Coin, type ContentSettings, type Persona, type Post, type TreasurySettings, type TreasuryView } from "../api";
+import { api, type Coin, type ContentSettings, type Persona, type Post, type TreasuryView } from "../api";
 import { Address, Notice } from "../components";
-import { ContentEditor, PersonaEditor, TreasuryEditor } from "../editors";
+import { ContentEditor, PersonaEditor } from "../editors";
 import { InstagramConnect } from "../InstagramConnect";
 import { useSession } from "../session";
 
@@ -132,21 +132,26 @@ function TreasuryTab({ coin }: { coin: Coin }) {
   if (!t) return <div aria-busy="true" className="loading-block" />;
   return (
     <div className="treasury">
+      <p className="treasury-lede">
+        This treasury automatically uses ${coin.symbol}'s creator fees to buy the coin back and burn it.
+        {t.paused && " Buybacks are paused by the site admin right now."}
+      </p>
       <dl className="treasury-figures">
         <div>
-          <dt>SOL in treasury</dt>
-          <dd>{t.solBalance?.toFixed(4) ?? "—"}</dd>
+          <dt>${coin.symbol} burned</dt>
+          <dd>{Math.round(t.totals.tokensBurned).toLocaleString()}</dd>
         </div>
         <div>
-          <dt>${coin.symbol} held</dt>
-          <dd>{t.tokenBalance !== null ? Math.round(t.tokenBalance).toLocaleString() : "—"}</dd>
+          <dt>SOL spent on buybacks</dt>
+          <dd>{t.totals.boughtBackSol.toFixed(4)}</dd>
         </div>
         <div>
-          <dt>Strategy</dt>
-          <dd className="treasury-strategy">
-            {t.settings.enabled ? t.settings.strategy.replace(/_/g, " ") : "Collecting fees only"}
-            {t.paused && " (paused)"}
-          </dd>
+          <dt>Creator fees collected</dt>
+          <dd>{t.totals.feesCollectedSol.toFixed(4)} SOL</dd>
+        </div>
+        <div>
+          <dt>Waiting to buy back</dt>
+          <dd>{t.solBalance !== null ? `${Math.max(0, t.solBalance - t.rules.gasReserveSol).toFixed(4)} SOL` : "—"}</dd>
         </div>
         <div>
           <dt>Agent wallet</dt>
@@ -155,18 +160,22 @@ function TreasuryTab({ coin }: { coin: Coin }) {
           </dd>
         </div>
       </dl>
-      {t.dryRun && <Notice tone="warn">Simulation mode: trades below are logged but were not sent on-chain.</Notice>}
+      <p className="sub-hint">
+        Buys back once at least {t.rules.minBuySol} SOL in fees has collected, at most every {t.rules.buyIntervalMin} minutes,
+        up to {t.rules.maxSolPerBuy} SOL per buyback and {t.rules.maxSolPerDay} SOL a day. Everything bought is burned.
+      </p>
+      {t.dryRun && <Notice tone="warn">Simulation mode: buybacks and burns below are logged but were not sent on-chain.</Notice>}
       <PriceLine prices={t.prices} />
       <h3 className="sub">Activity</h3>
       {t.actions.length === 0 ? (
-        <p className="muted">No treasury activity yet. Creator fees are collected once trading starts.</p>
+        <p className="muted">No activity yet. Creator fees start collecting once the coin trades.</p>
       ) : (
         <ul className="ledger">
           {t.actions.map((a, i) => (
             <li key={i} className={`ledger-${a.status}`}>
               <time dateTime={a.created_at}>{new Date(a.created_at).toLocaleString()}</time>
               <span className="ledger-kind">
-                {a.kind === "claim_fees" ? "Collected fees" : a.kind === "buy" ? "Bought back" : a.kind === "burn" ? "Burned" : a.kind}
+                {a.kind === "claim_fees" ? "Collected creator fees" : a.kind === "buy" ? "Bought back" : a.kind === "burn" ? "Burned" : a.kind}
                 {a.sol_amount && ` · ${Number(a.sol_amount).toFixed(4)} SOL`}
                 {a.token_amount && ` · ${Math.round(Number(a.token_amount)).toLocaleString()} ${coin.symbol}`}
                 {a.status === "simulated" && " · simulated"}
@@ -190,7 +199,6 @@ function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void
   const { config } = useSession();
   const [persona, setPersona] = useState<Persona>(coin.persona);
   const [content, setContent] = useState<ContentSettings>(coin.contentSettings);
-  const [treasury, setTreasury] = useState<TreasurySettings>(coin.treasurySettings);
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   if (!config) return null;
@@ -219,22 +227,13 @@ function SettingsTab({ coin, onSaved }: { coin: Coin; onSaved: (c: Coin) => void
             <small>{coin.contentPaused ? "Paused" : "On"}</small>
           </span>
         </label>
-        <label className="switch">
-          <input type="checkbox" checked={!coin.treasuryPaused} onChange={(e) => save({ treasuryPaused: !e.target.checked }, e.target.checked ? "Treasury resumed." : "Treasury paused.")} />
-          <span>
-            <strong>Treasury</strong>
-            <small>{coin.treasuryPaused ? "Paused" : "On"}</small>
-          </span>
-        </label>
       </div>
       <h3 className="sub-section">Character</h3>
       <PersonaEditor value={persona} onChange={setPersona} config={config} />
       <h3 className="sub-section">Posting</h3>
       <ContentEditor value={content} onChange={setContent} config={config} />
-      <h3 className="sub-section">Treasury</h3>
-      <TreasuryEditor value={treasury} onChange={setTreasury} config={config} />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-      <button className="btn btn-primary" disabled={busy} onClick={() => save({ persona, contentSettings: content, treasurySettings: treasury })}>
+      <button className="btn btn-primary" disabled={busy} onClick={() => save({ persona, contentSettings: content })}>
         Save changes
       </button>
     </div>

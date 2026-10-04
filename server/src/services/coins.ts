@@ -1,6 +1,6 @@
 import { one, query } from "../db/pool.js";
 import { openString } from "../lib/secrets.js";
-import type { ContentSettings, Persona, TreasurySettings } from "../domain/schemas.js";
+import type { ContentSettings, Persona } from "../domain/schemas.js";
 
 export interface CoinRow {
   id: string;
@@ -26,7 +26,7 @@ export interface CoinRow {
   dev_buy_sol: string;
   persona: Persona;
   content_settings: ContentSettings;
-  treasury_settings: TreasurySettings;
+  treasury_settings: Record<string, unknown>; // legacy; treasury is now automatic buyback-and-burn
   content_paused: boolean;
   treasury_paused: boolean;
   next_post_at: Date | null;
@@ -92,7 +92,6 @@ export function publicCoin(c: CoinRow, extra: Record<string, unknown> = {}) {
     launchTxSig: c.launch_tx_sig,
     persona: c.persona,
     contentSettings: c.content_settings,
-    treasurySettings: c.treasury_settings,
     contentPaused: c.content_paused,
     treasuryPaused: c.treasury_paused,
     nextPostAt: c.next_post_at,

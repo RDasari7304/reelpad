@@ -1,12 +1,10 @@
 import { useState } from "react";
-import type { AppConfig, ContentSettings, Format, Persona, Strategy, TreasurySettings } from "./api";
+import type { AppConfig, ContentSettings, Format, Persona } from "./api";
 import { ChipChoice, Field } from "./components";
 
 export const defaultPersona = (): Persona => ({
   personality: null,
   personalityCustom: "",
-  objective: null,
-  objectiveCustom: "",
   backstory: "",
   voice: "",
   visualStyle: "3d_render",
@@ -22,26 +20,8 @@ export const defaultContent = (): ContentSettings => ({
   reelsPerWeek: 1,
   autoPublish: true,
   hashtags: [],
+  postAboutBurns: true,
 });
-
-export const defaultTreasury = (): TreasurySettings => ({
-  enabled: false,
-  strategy: "hold",
-  maxSolPerAction: 0.05,
-  maxSolPerDay: 0.2,
-  reserveSol: 0.05,
-  dipPct: 15,
-  intervalMin: 60,
-  burnBought: false,
-  postAboutActions: true,
-});
-
-export function strategyFor(objective: string | null): Strategy {
-  if (objective === "buy_back_on_dips") return "dip_buyback";
-  if (objective === "steady_buybacks") return "steady_buyback";
-  if (objective === "deflation" || objective === "buy_and_burn") return "buy_and_burn";
-  return "hold";
-}
 
 function TagInput({ value, onChange, max, placeholder, prefix = "" }: { value: string[]; onChange: (v: string[]) => void; max: number; placeholder: string; prefix?: string }) {
   const [draft, setDraft] = useState("");
@@ -81,34 +61,17 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
   const set = <K extends keyof Persona>(k: K, v: Persona[K]) => onChange({ ...value, [k]: v });
   return (
     <div className="editor">
-      <div className="editor-cols">
-        <div>
-          <h3 className="sub">Personality</h3>
-          <p className="sub-hint">Who it is.</p>
-          <ChipChoice
-            label="Personality"
-            options={config.catalog.personalities}
-            value={value.personality}
-            onChange={(v) => set("personality", v)}
-            custom={value.personalityCustom}
-            onCustom={(v) => set("personalityCustom", v)}
-            customPlaceholder="A retired space pirate who speaks only in sea shanties"
-          />
-        </div>
-        <div>
-          <h3 className="sub">Objective</h3>
-          <p className="sub-hint">What it works towards.</p>
-          <ChipChoice
-            label="Objective"
-            options={config.catalog.objectives}
-            value={value.objective}
-            onChange={(v) => set("objective", v)}
-            custom={value.objectiveCustom}
-            onCustom={(v) => set("objectiveCustom", v)}
-            customPlaceholder="Map every coffee shop on the moon"
-          />
-        </div>
-      </div>
+      <h3 className="sub">Personality</h3>
+      <p className="sub-hint">Who your coin's character is on Instagram.</p>
+      <ChipChoice
+        label="Personality"
+        options={config.catalog.personalities}
+        value={value.personality}
+        onChange={(v) => set("personality", v)}
+        custom={value.personalityCustom}
+        onCustom={(v) => set("personalityCustom", v)}
+        customPlaceholder="A retired space pirate who speaks only in sea shanties"
+      />
 
       <h3 className="sub">Look</h3>
       <p className="sub-hint">Every post uses your token image as the character reference, drawn in this style.</p>
@@ -202,86 +165,45 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
           <small>New posts wait on your coin page until you approve them. Off means the character posts on its own.</small>
         </span>
       </label>
+      <label className="switch">
+        <input
+          type="checkbox"
+          checked={value.postAboutBurns !== false}
+          onChange={(e) => set("postAboutBurns", e.target.checked)}
+        />
+        <span>
+          <strong>Post about buybacks and burns</strong>
+          <small>At most once a day, the character posts about the latest buyback and burn, using the real numbers.</small>
+        </span>
+      </label>
     </div>
   );
 }
 
-const STRATEGIES: Record<Strategy, [string, string]> = {
-  hold: ["Hold", "Collect creator fees into the treasury and never trade."],
-  dip_buyback: ["Buy back on dips", "Buy when the price falls a set percentage below its 24-hour high."],
-  steady_buyback: ["Steady buybacks", "Buy small amounts on a regular schedule."],
-  buy_and_burn: ["Buy and burn", "Buy on a schedule, then burn every coin it bought."],
-};
-
-export function TreasuryEditor({ value, onChange, config }: { value: TreasurySettings; onChange: (t: TreasurySettings) => void; config: AppConfig }) {
-  const set = <K extends keyof TreasurySettings>(k: K, v: TreasurySettings[K]) => onChange({ ...value, [k]: v });
-  const num = (k: keyof TreasurySettings, step: number, min: number, max: number) => (
-    <input
-      className="input"
-      type="number"
-      step={step}
-      min={min}
-      max={max}
-      value={value[k] as number}
-      onChange={(e) => set(k, Number(e.target.value) as never)}
-    />
-  );
+/** Read-only explanation of the automatic buyback-and-burn treasury (nothing to configure). */
+export function TreasuryExplainer({ config }: { config: AppConfig }) {
+  const l = config.limits;
   return (
-    <div className="editor">
+    <div className="editor treasury-explainer">
+      <ol className="burn-cycle">
+        <li>
+          <strong>Fees come in.</strong> Your coin gets its own agent wallet, set as the coin's creator on pump.fun, so
+          every trade's creator fee goes to it.
+        </li>
+        <li>
+          <strong>It buys the coin back.</strong> Once at least {l.treasuryMinBuySol} SOL in fees has collected, the agent
+          spends it buying your coin, at most once every {l.treasuryBuyIntervalMin} minutes.
+        </li>
+        <li>
+          <strong>It burns what it bought.</strong> Every coin the agent buys back is burned straight away, permanently
+          reducing the supply.
+        </li>
+      </ol>
       <p className="sub-hint">
-        Each coin gets its own agent wallet, set as the coin's creator on pump.fun, so creator fees flow into it. The agent can
-        only spend within the limits below, and the platform caps every coin at {config.limits.treasuryMaxSolPerAction} SOL per
-        trade and {config.limits.treasuryMaxSolPerDay} SOL per day. Nobody can withdraw from the treasury, including you.
+        It runs on its own for as long as the coin trades. Each buyback is capped at {l.treasuryMaxSolPerAction} SOL and{" "}
+        {l.treasuryMaxSolPerDay} SOL a day; extra fees carry over. Nobody can withdraw from the treasury, including you, and
+        every buyback and burn is listed publicly on the coin's Treasury tab.
       </p>
-      <label className="switch">
-        <input type="checkbox" checked={value.enabled} onChange={(e) => set("enabled", e.target.checked)} />
-        <span>
-          <strong>Let the agent trade</strong>
-          <small>Off means fees still collect in the treasury, but it never buys or burns.</small>
-        </span>
-      </label>
-      {value.enabled && (
-        <>
-          <div className="format-options">
-            {(Object.keys(STRATEGIES) as Strategy[]).map((s) => (
-              <label key={s} className={value.strategy === s ? "option on" : "option"}>
-                <input type="radio" name="strategy" checked={value.strategy === s} onChange={() => set("strategy", s)} />
-                <span>
-                  <strong>{STRATEGIES[s][0]}</strong>
-                  <small>{STRATEGIES[s][1]}</small>
-                </span>
-              </label>
-            ))}
-          </div>
-          {value.strategy !== "hold" && (
-            <div className="grid-3">
-              <Field label="Most SOL per trade">{num("maxSolPerAction", 0.01, 0.001, 10)}</Field>
-              <Field label="Most SOL per day">{num("maxSolPerDay", 0.01, 0.001, 50)}</Field>
-              <Field label="Always keep (SOL)" hint="Never spends below this.">
-                {num("reserveSol", 0.01, 0, 1000)}
-              </Field>
-              <Field label="Minutes between trades">{num("intervalMin", 15, 15, 1440)}</Field>
-              {value.strategy === "dip_buyback" && <Field label="Dip size (%)">{num("dipPct", 1, 5, 80)}</Field>}
-            </div>
-          )}
-          {value.strategy !== "buy_and_burn" && value.strategy !== "hold" && (
-            <label className="switch">
-              <input type="checkbox" checked={value.burnBought} onChange={(e) => set("burnBought", e.target.checked)} />
-              <span>
-                <strong>Burn what it buys</strong>
-                <small>Bought coins are destroyed instead of held.</small>
-              </span>
-            </label>
-          )}
-          <label className="switch">
-            <input type="checkbox" checked={value.postAboutActions} onChange={(e) => set("postAboutActions", e.target.checked)} />
-            <span>
-              <strong>Post about treasury trades</strong>
-              <small>Used when the objective is Open book, Radical transparency or Holder confidence.</small>
-            </span>
-          </label>
-        </>
-      )}
     </div>
   );
 }

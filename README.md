@@ -1,9 +1,9 @@
 # Reelpad
 
 Launch a pump.fun coin with its own AI influencer. The creator sets the name, ticker, image and character (personality,
-objective, look, voice); the coin is created on pump.fun from their wallet; they connect an Instagram Creator/Business
+look, voice); the coin is created on pump.fun from their wallet; they connect an Instagram Creator/Business
 account; the character then posts images, carousels and Reels on a schedule. Each coin also gets an agent wallet that
-receives the coin's pump.fun creator fees and can buy back or burn the coin within strict limits.
+receives the coin's pump.fun creator fees and automatically uses them to buy back and burn the coin.
 
 ## How it works
 
@@ -30,9 +30,11 @@ for a plan in the character's voice, rejects captions that promise returns or te
 token image as a character reference (and animates a keyframe for Reels), converts to Instagram-compatible JPEG/MP4,
 stores them publicly, and publishes. Creators can switch on review mode to approve each post first.
 
-**Treasury.** Every 15 minutes per coin: record the price, claim creator fees, and run the pure policy in
-`server/src/domain/treasuryPolicy.ts`. The policy can only spend the smaller of the creator's limits and the platform caps,
-never touches the reserve or gas buffer, and enforces cooldowns. `TREASURY_DRY_RUN=true` (the default) logs simulated
+**Treasury (automatic buyback and burn).** Every 15 minutes per coin: record the price and claim creator fees. Once at
+least `TREASURY_MIN_BUY_SOL` has collected (and at most every `TREASURY_BUY_INTERVAL_MIN` minutes), the agent spends the
+fees above its gas reserve buying the coin back, then burns everything it bought. The pure policy in
+`server/src/domain/treasuryPolicy.ts` caps each buyback and each day; extra fees carry over. Creators can't change or
+pause it; admins can, platform-wide or per coin. `TREASURY_DRY_RUN=true` (the default) logs simulated
 trades instead of sending them. Admins have kill switches for launches, posting and trading.
 
 ## Run locally

@@ -3,8 +3,7 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { config } from "../config.js";
 import { enqueue } from "../db/jobs.js";
 import { one, query } from "../db/pool.js";
-import { TRANSPARENCY_OBJECTIVES } from "../domain/catalog.js";
-import { decide } from "../domain/treasuryPolicy.js";
+import { decideBuyback } from "../domain/treasuryPolicy.js";
 import { logger } from "../lib/logger.js";
 import { openKeypair } from "../lib/secrets.js";
 import { getCoin, type CoinRow } from "./coins.js";
@@ -71,29 +70,56 @@ async function maybeClaimFees(coin: CoinRow, graduated: boolean) {
   }
 }
 
-async function burnHeld(coin: CoinRow, dryRun: boolean, reason: string) {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Burns every coin the agent wallet holds. Runs after each buyback, and on every run in case an
+ * earlier burn failed, so bought-back coins never sit in the treasury.
+ */
+async function burnAll(coin: CoinRow, reason: string, expectTokens = false) {
   const agent = openKeypair(coin.agent_secret_enc);
   const mint = new PublicKey(coin.mint!);
-  const bal = await getTokenBalance(agent.publicKey, mint);
-  if (bal.raw === 0n || !bal.account) return;
-  if (dryRun) {
-    await record(coin.id, { kind: "burn", status: "simulated", tokens: bal.ui.toString(), reason, dryRun: true });
-    return;
+  let bal = await getTokenBalance(agent.publicKey, mint);
+  // Right after a buy the RPC can briefly report the old balance; give it a few seconds.
+  for (let i = 0; expectTokens && bal.raw === 0n && i < 5; i++) {
+    await sleep(2000);
+    bal = await getTokenBalance(agent.publicKey, mint);
   }
+  if (bal.raw === 0n || !bal.account) return null;
   const mintInfo = await connection.getAccountInfo(mint, "confirmed");
   if (!mintInfo) throw new Error("Mint account not found");
   const tx = new Transaction().add(
     createBurnCheckedInstruction(bal.account, mint, agent.publicKey, bal.raw, bal.decimals, [], mintInfo.owner),
   );
-  const sig = await signAndSendLegacy(tx, [agent]);
-  await record(coin.id, { kind: "burn", status: "done", tokens: bal.ui.toString(), sig, reason });
+  try {
+    const sig = await signAndSendLegacy(tx, [agent]);
+    await record(coin.id, { kind: "burn", status: "done", tokens: bal.ui.toString(), sig, reason });
+    return bal.ui;
+  } catch (e) {
+    await record(coin.id, { kind: "burn", status: "failed", tokens: bal.ui.toString(), reason: (e as Error).message });
+    throw e;
+  }
 }
 
+/** Queues a post about the latest buyback and burn, at most once a day per coin. */
+async function maybePostAboutBurn(coin: CoinRow, note: string) {
+  if (coin.content_settings.postAboutBurns === false) return;
+  const recent = await one(
+    `SELECT 1 FROM posts WHERE coin_id = $1 AND trigger = 'treasury' AND created_at > now() - interval '24 hours'`,
+    [coin.id],
+  );
+  if (recent) return;
+  await enqueue("content.plan", { coinId: coin.id, trigger: "treasury", note }, { dedupeKey: `plan:${coin.id}`, maxAttempts: 2 });
+}
+
+/**
+ * One treasury cycle for a coin: record the price, claim creator fees, buy the coin back with the
+ * fees (above the gas reserve, within platform caps), then burn everything bought.
+ */
 export async function runTreasury(coinId: string) {
   const kill = await getKillSwitch();
   const coin = await getCoin(coinId);
   if (!coin || coin.status !== "live" || !coin.mint) return;
-  const ts = coin.treasury_settings;
   await query(`UPDATE coins SET last_treasury_run_at = now() WHERE id = $1`, [coinId]);
 
   const mint = new PublicKey(coin.mint);
@@ -106,12 +132,19 @@ export async function runTreasury(coinId: string) {
     ]);
   }
 
-  if (kill.treasury || !ts.enabled || coin.treasury_paused) return;
+  // Admin emergency stop (platform-wide) or admin pause for this coin.
+  if (kill.treasury || coin.treasury_paused) return;
 
   await maybeClaimFees(coin, price?.graduated ?? false);
 
+  const dryRun = config.TREASURY_DRY_RUN;
+  // Leftovers from an earlier run whose burn failed are burned first.
+  if (!dryRun) await burnAll(coin, "Burned coins left from an earlier buyback.").catch((e) =>
+    logger.warn({ coinId, err: (e as Error).message }, "leftover burn failed"),
+  );
+
   const agent = openKeypair(coin.agent_secret_enc);
-  const [balance, spent, lastBuy, high] = await Promise.all([
+  const [balance, spent, lastBuy] = await Promise.all([
     getSolBalance(agent.publicKey),
     one<{ s: string | null }>(
       `SELECT sum(sol_amount)::text AS s FROM treasury_actions
@@ -123,32 +156,19 @@ export async function runTreasury(coinId: string) {
        ORDER BY created_at DESC LIMIT 1`,
       [coinId],
     ),
-    one<{ h: string | null }>(
-      `SELECT max(price_sol)::text AS h FROM price_snapshots WHERE coin_id = $1 AND ts > now() - interval '24 hours'`,
-      [coinId],
-    ),
   ]);
 
-  const decision = decide({
-    strategy: ts.strategy,
-    user: {
-      maxSolPerAction: ts.maxSolPerAction,
-      maxSolPerDay: ts.maxSolPerDay,
-      reserveSol: ts.reserveSol,
-      dipPct: ts.dipPct,
-      intervalMin: ts.intervalMin,
-    },
-    platform: {
-      maxSolPerAction: config.TREASURY_MAX_SOL_PER_ACTION,
-      maxSolPerDay: config.TREASURY_MAX_SOL_PER_DAY,
-      gasReserveSol: config.TREASURY_GAS_RESERVE_SOL,
-      minIntervalMin: config.TREASURY_MIN_INTERVAL_MIN,
-    },
+  const decision = decideBuyback({
     solBalance: balance,
     spentTodaySol: Number(spent?.s ?? 0),
     minutesSinceLastBuy: lastBuy ? (Date.now() - lastBuy.created_at.getTime()) / 60_000 : null,
-    priceNow: price?.priceSol ?? null,
-    priceHigh24h: high?.h ? Number(high.h) : null,
+    limits: {
+      gasReserveSol: config.TREASURY_GAS_RESERVE_SOL,
+      minBuySol: config.TREASURY_MIN_BUY_SOL,
+      maxSolPerBuy: config.TREASURY_MAX_SOL_PER_ACTION,
+      maxSolPerDay: config.TREASURY_MAX_SOL_PER_DAY,
+      intervalMin: config.TREASURY_BUY_INTERVAL_MIN,
+    },
   });
 
   if (decision.action === "skip") {
@@ -156,28 +176,26 @@ export async function runTreasury(coinId: string) {
     return;
   }
 
-  const dryRun = config.TREASURY_DRY_RUN;
   if (dryRun) {
     await record(coinId, { kind: "buy", status: "simulated", sol: decision.sol, reason: decision.reason, dryRun });
-  } else {
-    try {
-      const sig = await agentBuy(agent, mint, decision.sol);
-      await record(coinId, { kind: "buy", status: "done", sol: decision.sol, sig, reason: decision.reason });
-    } catch (e) {
-      await record(coinId, { kind: "buy", status: "failed", sol: decision.sol, reason: (e as Error).message });
-      throw e;
-    }
+    await record(coinId, { kind: "burn", status: "simulated", reason: "Would burn every coin bought back.", dryRun });
+    await maybePostAboutBurn(coin, `The treasury ran a simulated buyback of ${decision.sol} SOL from creator fees, and would burn what it bought.`);
+    return;
   }
 
-  if (ts.strategy === "buy_and_burn" || ts.burnBought) {
-    await burnHeld(coin, dryRun, "Burned coins bought back by the treasury.");
+  try {
+    const sig = await agentBuy(agent, mint, decision.sol);
+    await record(coinId, { kind: "buy", status: "done", sol: decision.sol, sig, reason: decision.reason });
+  } catch (e) {
+    await record(coinId, { kind: "buy", status: "failed", sol: decision.sol, reason: (e as Error).message });
+    throw e;
   }
 
-  if (ts.postAboutActions && TRANSPARENCY_OBJECTIVES.has(coin.persona.objective ?? "")) {
-    await enqueue(
-      "content.plan",
-      { coinId, trigger: "treasury", note: `The treasury just ${dryRun ? "simulated a" : "made a"} buyback of ${decision.sol} SOL. ${decision.reason}` },
-      { dedupeKey: `plan:${coinId}`, maxAttempts: 2 },
+  const burned = await burnAll(coin, "Burned the coins just bought back with creator fees.", true);
+  if (burned) {
+    await maybePostAboutBurn(
+      coin,
+      `The treasury just used ${decision.sol} SOL of creator fees to buy back ${Math.round(burned).toLocaleString("en-US")} $${coin.symbol} and burned all of it.`,
     );
   }
 }

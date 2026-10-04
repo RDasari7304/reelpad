@@ -40,7 +40,7 @@ export default function Home() {
           <h1>Every coin gets a face.</h1>
           <p className="lede">
             Launch a pump.fun coin and give it an AI character that lives on Instagram. It posts images, carousels and Reels in
-            its own voice, and can run a treasury that buys back the coin with its creator fees.
+            its own voice, while its treasury uses the coin's creator fees to buy it back and burn it, automatically.
           </p>
           <div className="hero-actions">
             <Link to="/launch" className="btn btn-primary">

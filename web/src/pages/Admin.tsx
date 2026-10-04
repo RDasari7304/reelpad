@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Notice } from "../components";
-import { TesterQueue } from "../TesterQueue";
+import { AdminCoins } from "../AdminCoins";
 import { useSession } from "../session";
 
 interface Overview {
@@ -41,7 +41,7 @@ export default function Admin() {
   };
 
   return (
-    <div className="page narrow admin">
+    <div className="page admin">
       <h1>Admin</h1>
       <h2 className="sub-section">Emergency stops</h2>
       {SWITCHES.map(([k, label, hint]) => (
@@ -55,12 +55,8 @@ export default function Admin() {
           </span>
         </label>
       ))}
-      <h2 className="sub-section">Instagram access</h2>
-      {o.igAccessMode === "testers" ? (
-        <TesterQueue />
-      ) : (
-        <p className="muted">Open mode: anyone can log in with Instagram. Set IG_ACCESS_MODE=testers to go back to the invite queue.</p>
-      )}
+      <h2 className="sub-section">Coins and Instagram access</h2>
+      <AdminCoins />
       <h2 className="sub-section">Today</h2>
       <dl className="treasury-figures">
         <div>

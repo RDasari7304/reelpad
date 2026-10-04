@@ -52,6 +52,8 @@ const schema = z.object({
   // "testers" until Meta approves the app (creators request access, an admin adds them as testers).
   // "open" after approval: the Connect button goes straight to Instagram login for everyone.
   IG_ACCESS_MODE: z.enum(["testers", "open"]).default("testers"),
+  // Optional: the Facebook App ID (App settings → Basic), used only to link straight to the Roles page from Admin.
+  META_APP_ID: z.string().optional(),
 
   ANTHROPIC_API_KEY: z.string().min(1),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
@@ -69,10 +71,12 @@ const schema = z.object({
   CAPTION_FOOTER: z.string().default("AI-generated persona. Not financial advice."),
 
   TREASURY_DRY_RUN: bool(true),
-  TREASURY_MAX_SOL_PER_ACTION: num(0.5),
-  TREASURY_MAX_SOL_PER_DAY: num(2),
-  TREASURY_MIN_INTERVAL_MIN: num(15),
-  TREASURY_GAS_RESERVE_SOL: num(0.01),
+  TREASURY_MAX_SOL_PER_ACTION: num(0.5), // most SOL one buyback can spend
+  TREASURY_MAX_SOL_PER_DAY: num(2), // most SOL a coin's buybacks can spend per 24h; extra fees carry over
+  TREASURY_MIN_INTERVAL_MIN: num(15), // how often each treasury is checked (fees claimed, price recorded)
+  TREASURY_BUY_INTERVAL_MIN: num(60), // minimum minutes between buybacks for one coin
+  TREASURY_MIN_BUY_SOL: num(0.01), // wait until this much in fees has collected before buying
+  TREASURY_GAS_RESERVE_SOL: num(0.01), // always kept in the agent wallet for fees and rent
 
   RUN_WORKER: bool(true),
   LOG_LEVEL: z.string().default("info"),

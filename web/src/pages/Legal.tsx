@@ -30,8 +30,9 @@ export function Terms() {
       </p>
       <h2>Treasury</h2>
       <p>
-        Each coin has an agent wallet controlled by the platform's software. Creator fees are paid into it, and it may buy or
-        burn the coin within the limits you set. The treasury cannot be withdrawn by you. Software and blockchains fail; you
+        Each coin has an agent wallet controlled by the platform's software. The coin's creator fees are paid into it, and it
+        automatically uses them to buy back and burn the coin, within platform limits. The treasury cannot be withdrawn by you
+        or turned off by you. Software and blockchains fail; you
         accept the risk of loss.
       </p>
       <h2>Fees</h2>

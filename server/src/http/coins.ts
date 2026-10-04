@@ -11,13 +11,13 @@ import {
   contentSettingsSchema,
   instagramUsernameSchema,
   personaSchema,
-  treasurySettingsSchema,
 } from "../domain/schemas.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
+import { upsertAccessRequest } from "../services/instagramAccess.js";
 import { createDraft, prepareLaunch, submitLaunch } from "../services/launch.js";
 import { buildBuyTx } from "../services/pumpportal.js";
 import { getKillSwitch } from "../services/settings.js";
-import { getSolBalance, getTokenBalance } from "../services/solana.js";
+import { getSolBalance } from "../services/solana.js";
 import { requireAuth } from "./auth.js";
 import { asyncHandler, HttpError } from "./util.js";
 
@@ -133,24 +133,43 @@ coinsRouter.get(
     const coin = await getCoin(String(req.params.id));
     if (!coin || coin.status !== "live") throw new HttpError(404, "Coin not found");
     const agent = new PublicKey(coin.agent_pubkey);
-    const [solBal, tokenBal, actions, prices] = await Promise.all([
+    const [solBal, actions, prices, totals] = await Promise.all([
       getSolBalance(agent).catch(() => null),
-      coin.mint ? getTokenBalance(agent, new PublicKey(coin.mint)).catch(() => null) : null,
       query(
         `SELECT kind, sol_amount, token_amount, tx_sig, status, reason, dry_run, created_at FROM treasury_actions
-         WHERE coin_id = $1 ORDER BY created_at DESC LIMIT 50`,
+         WHERE coin_id = $1 AND status <> 'skipped' ORDER BY created_at DESC LIMIT 50`,
         [coin.id],
       ),
       query(
         `SELECT ts, price_sol FROM price_snapshots WHERE coin_id = $1 AND ts > now() - interval '7 days' ORDER BY ts`,
         [coin.id],
       ),
+      one<{ fees: string | null; spent: string | null; burned: string | null; burns: number }>(
+        `SELECT
+           sum(sol_amount) FILTER (WHERE kind = 'claim_fees' AND status = 'done')::text AS fees,
+           sum(sol_amount) FILTER (WHERE kind = 'buy' AND status = 'done')::text AS spent,
+           sum(token_amount::numeric) FILTER (WHERE kind = 'burn' AND status = 'done')::text AS burned,
+           count(*) FILTER (WHERE kind = 'burn' AND status = 'done')::int AS burns
+         FROM treasury_actions WHERE coin_id = $1`,
+        [coin.id],
+      ),
     ]);
     res.json({
       agentWallet: coin.agent_pubkey,
       solBalance: solBal,
-      tokenBalance: tokenBal ? tokenBal.ui : null,
-      settings: coin.treasury_settings,
+      totals: {
+        feesCollectedSol: Number(totals?.fees ?? 0),
+        boughtBackSol: Number(totals?.spent ?? 0),
+        tokensBurned: Number(totals?.burned ?? 0),
+        burns: totals?.burns ?? 0,
+      },
+      rules: {
+        minBuySol: config.TREASURY_MIN_BUY_SOL,
+        buyIntervalMin: config.TREASURY_BUY_INTERVAL_MIN,
+        maxSolPerBuy: config.TREASURY_MAX_SOL_PER_ACTION,
+        maxSolPerDay: config.TREASURY_MAX_SOL_PER_DAY,
+        gasReserveSol: config.TREASURY_GAS_RESERVE_SOL,
+      },
       paused: coin.treasury_paused,
       dryRun: config.TREASURY_DRY_RUN,
       actions: actions.rows,
@@ -223,26 +242,21 @@ coinsRouter.patch(
       .object({
         persona: personaSchema.optional(),
         contentSettings: contentSettingsSchema.optional(),
-        treasurySettings: treasurySettingsSchema.optional(),
         contentPaused: z.boolean().optional(),
-        treasuryPaused: z.boolean().optional(),
       })
       .parse(req.body);
+    // The treasury is automatic buyback-and-burn: creators can't change or pause it (admins can, from Admin).
     const updated = await one<CoinRow>(
       `UPDATE coins SET
          persona = COALESCE($2, persona),
          content_settings = COALESCE($3, content_settings),
-         treasury_settings = COALESCE($4, treasury_settings),
-         content_paused = COALESCE($5, content_paused),
-         treasury_paused = COALESCE($6, treasury_paused)
+         content_paused = COALESCE($4, content_paused)
        WHERE id = $1 RETURNING *`,
       [
         coin.id,
         body.persona ? JSON.stringify(body.persona) : null,
         body.contentSettings ? JSON.stringify(body.contentSettings) : null,
-        body.treasurySettings ? JSON.stringify(body.treasurySettings) : null,
         body.contentPaused ?? null,
-        body.treasuryPaused ?? null,
       ],
     );
     res.json({ coin: publicCoin(updated!, { isOwner: true }) });
@@ -276,19 +290,7 @@ coinsRouter.put(
   asyncHandler(async (req, res) => {
     const coin = await ownedCoin(String(req.params.id), req.wallet);
     const { username } = z.object({ username: instagramUsernameSchema }).parse(req.body);
-    const row = await one<{ username: string; status: string; requested_at: Date; invited_at: Date | null }>(
-      `INSERT INTO instagram_access_requests(coin_id, username) VALUES ($1, $2)
-       ON CONFLICT (coin_id) DO UPDATE SET
-         status = CASE WHEN instagram_access_requests.username = EXCLUDED.username THEN instagram_access_requests.status ELSE 'pending' END,
-         invited_at = CASE WHEN instagram_access_requests.username = EXCLUDED.username THEN instagram_access_requests.invited_at ELSE NULL END,
-         requested_at = CASE WHEN instagram_access_requests.username = EXCLUDED.username THEN instagram_access_requests.requested_at ELSE now() END,
-         username = EXCLUDED.username
-       RETURNING username, status, requested_at, invited_at`,
-      [coin.id, username],
-    );
-    res.json({
-      instagramAccess: { username: row!.username, status: row!.status, requestedAt: row!.requested_at, invitedAt: row!.invited_at },
-    });
+    res.json({ instagramAccess: await upsertAccessRequest(coin.id, username) });
   }),
 );
 
