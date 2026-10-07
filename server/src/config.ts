@@ -47,14 +47,18 @@ const schema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_PUBLIC_BASE_URL: z.string().url(),
 
-  IG_APP_ID: z.string().min(1),
-  IG_APP_SECRET: z.string().min(1),
-  IG_API_VERSION: z.string().default("v23.0"),
-  // "testers" until Meta approves the app (creators request access, an admin adds them as testers).
-  // "open" after approval: the Connect button goes straight to Instagram login for everyone.
-  IG_ACCESS_MODE: z.enum(["testers", "open"]).default("testers"),
-  // Optional: the Facebook App ID (App settings → Basic), used only to link straight to the Roles page from Admin.
-  META_APP_ID: z.string().optional(),
+  // TikTok for Developers app (developers.tiktok.com): Login Kit + Content Posting API (Direct Post).
+  TIKTOK_CLIENT_KEY: z.string().min(1),
+  TIKTOK_CLIENT_SECRET: z.string().min(1),
+  // "testers" until TikTok approves the app (creators request access, an admin adds them as sandbox target users).
+  // "open" after approval: the Connect button goes straight to TikTok login for everyone.
+  TIKTOK_ACCESS_MODE: z.enum(["testers", "open"]).default("testers"),
+  // Who can see posts. Until TikTok audits the app, it can only post privately (SELF_ONLY) and does so automatically.
+  TIKTOK_PRIVACY_LEVEL: z.enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]).default("PUBLIC_TO_EVERYONE"),
+  // Comment replies need TikTok's comment scopes (comment.list, comment.list.manage) approved for the app.
+  TIKTOK_COMMENTS: bool(false),
+  // Optional: the TikTok developer app ID, used only to link straight to the app's sandbox settings from Admin.
+  TIKTOK_APP_ID: z.string().optional(),
 
   ANTHROPIC_API_KEY: z.string().min(1),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
@@ -89,11 +93,11 @@ const schema = z.object({
   COMMENT_BATCH: num(12), // comments considered per Claude call (it answers only the interesting ones)
   ROOM_MAX_CONVERSATIONS: num(3), // conversations running at once in the Room (only while someone is watching)
   CONTENT_MIN_POSTS_PER_DAY: num(12), // every coin posts at least this often
-  CONTENT_MAX_POSTS_PER_DAY: num(24), // most posts a creator can schedule per day (Instagram allows 100 per 24h)
+  CONTENT_MAX_POSTS_PER_DAY: num(15), // most posts a creator can schedule per day (TikTok caps Direct Post at about 15 per creator per day)
   CONTENT_MAX_REELS_PER_WEEK: num(21),
-  // Influencers that live only on Reelpad (no Instagram connected yet) post less, to keep AI costs in check.
+  // Influencers that live only on Reelpad (no TikTok connected yet) post less, to keep AI costs in check.
   PAD_POSTS_PER_DAY: num(6),
-  PAD_REELS_PER_WEEK: num(2), // most Reels per week; Reels cost the most to generate
+  PAD_REELS_PER_WEEK: num(2), // most videos per week; videos cost the most to generate
   CAPTION_FOOTER: z.string().default("AI-generated persona. Not financial advice."),
 
   // Buybacks and burns are always live on-chain. The old TREASURY_DRY_RUN setting is ignored on purpose, so a

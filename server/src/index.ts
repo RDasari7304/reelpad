@@ -14,7 +14,7 @@ import { pool } from "./db/pool.js";
 import { adminRouter } from "./http/admin.js";
 import { authRouter, readSession } from "./http/auth.js";
 import { coinsRouter, postsRouter } from "./http/coins.js";
-import { instagramRouter } from "./http/instagram.js";
+import { tiktokRouter, tiktokWebhook } from "./http/tiktok.js";
 import { roomRouter } from "./http/room.js";
 import { shoutoutsRouter } from "./http/shoutouts.js";
 import { errorHandler } from "./http/util.js";
@@ -38,7 +38,7 @@ app.use(
         mediaSrc: ["'self'", "https:"],
         connectSrc: ["'self'", "https:", "wss:"],
         frameSrc: ["'self'", "https://dexscreener.com"],
-        formAction: ["'self'", "https://www.instagram.com"],
+        formAction: ["'self'", "https://www.tiktok.com"],
         // Only force HTTPS when the site is served over HTTPS, so `npm start` still works on http://localhost.
         upgradeInsecureRequests: config.PUBLIC_URL.startsWith("https://") ? [] : null,
       },
@@ -49,6 +49,8 @@ app.use(
 app.use(cors({ origin: config.PUBLIC_URL, credentials: true }));
 app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => !req.url?.startsWith("/api") } }));
 app.use(cookieParser());
+// TikTok webhooks are verified against the raw body, so they skip the JSON parser.
+app.post("/api/tiktok/webhook", ...tiktokWebhook);
 app.use(express.json({ limit: "200kb" }));
 app.use(readSession);
 
@@ -70,7 +72,8 @@ app.get("/api/config", (_req, res) => {
     platformFeeSol: config.PLATFORM_FEE_SOL,
     agentGasSol: config.AGENT_GAS_FUND_SOL,
     treasuryDryRun: config.TREASURY_DRY_RUN,
-    igAccessMode: config.IG_ACCESS_MODE,
+    tiktokAccessMode: config.TIKTOK_ACCESS_MODE,
+    tiktokComments: config.TIKTOK_COMMENTS,
     limits: {
       minPostsPerDay: config.CONTENT_MIN_POSTS_PER_DAY,
       maxPostsPerDay: config.CONTENT_MAX_POSTS_PER_DAY,
@@ -88,7 +91,7 @@ app.use("/api/auth", authRouter);
 app.use("/api", shoutoutsRouter);
 app.use("/api/coins", coinsRouter);
 app.use("/api/posts", postsRouter);
-app.use("/api/instagram", instagramRouter);
+app.use("/api/tiktok", tiktokRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/room", roomRouter);
 app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));

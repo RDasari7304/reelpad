@@ -1,8 +1,8 @@
 # Reelpad
 
 Launch a pump.fun coin with its own AI influencer. The creator sets the name, ticker, image and character (personality,
-look, voice); the coin is created on pump.fun from their wallet; they connect an Instagram Creator/Business
-account; the character then posts images, carousels and Reels on a schedule. Each coin also gets an agent wallet that
+look, voice); the coin is created on pump.fun from their wallet; they can connect a TikTok
+account; the character then posts videos, photos and photo carousels on a schedule, on Reelpad and on TikTok. Each coin also gets an agent wallet that
 receives the coin's pump.fun creator fees and automatically uses them to buy back and burn the coin.
 
 ## How it works
@@ -15,7 +15,7 @@ API (Express) ───────────── Postgres (coins, posts, tr
    │                              ▲
    │                              │ jobs
    ▼                              │
-Worker ── plan post (Claude) ── generate media (fal.ai) ── store (R2) ── publish (Instagram API)
+Worker ── plan post (Claude) ── generate media (fal.ai) ── store (R2) ── publish (TikTok Content Posting API)
       └── treasury: price snapshot → claim creator fees → policy decision → buy (PumpPortal) → burn
 ```
 
@@ -25,9 +25,9 @@ creator** (so creator fees go to the treasury), plus the platform fee and a smal
 signs on the server; the creator signs in their wallet; the server checks the signed transaction is byte-for-byte what it
 built before broadcasting. An optional first buy follows as a second approval.
 
-**Posting.** Every minute the worker finds coins due a post, picks a format (respecting the weekly Reel cap), asks Claude
+**Posting.** Every minute the worker finds coins due a post, picks a format (respecting the weekly video cap), asks Claude
 for a plan in the character's voice, rejects captions that promise returns or tell people to buy, generates images with the
-token image as a character reference (and animates a keyframe for Reels), converts to Instagram-compatible JPEG/MP4,
+token image as a character reference (and animates keyframes for videos), converts to TikTok-compatible JPEG/MP4,
 stores them publicly, and publishes. Creators can switch on review mode to approve each post first.
 
 **Treasury (automatic buyback and burn).** Every 15 minutes per coin: record the price and claim creator fees. Once at
@@ -49,7 +49,7 @@ npm run dev                         # API on :8080, web on :5173 (proxied)
 npm test                            # unit tests (policy, captions, crypto, SigV4, scheduling)
 ```
 
-Instagram OAuth needs a public HTTPS redirect, so test the connect flow on your deployed domain (or an HTTPS tunnel set as
+TikTok login needs a public HTTPS redirect, so test the connect flow on your deployed domain (or an HTTPS tunnel set as
 `PUBLIC_URL`).
 
 ## Accounts you need
@@ -58,30 +58,39 @@ Instagram OAuth needs a public HTTPS redirect, so test the connect flow on your 
 |---|---|---|
 | Solana RPC (Helius, Triton…) | Launches, balances, trades | Public RPC drops transactions |
 | Pinata | IPFS image + metadata | pump.fun no longer accepts direct uploads |
-| Cloudflare R2 (or any S3) | Public media for Instagram | Bucket must be publicly readable |
-| Meta developer app | Instagram publishing | See below |
+| Cloudflare R2 (or any S3) | Public media for TikTok | Bucket must be publicly readable, domain verified in TikTok |
+| TikTok developer app | TikTok publishing | See below |
 | Anthropic | Post planning and captions | |
 | fal.ai | Images and Reels | Model IDs configurable |
 
-## Meta / Instagram setup
+## TikTok setup
 
-1. Create an app at developers.facebook.com (type: Business). Add the **Instagram** product and choose **API setup with
-   Instagram login**. Copy the Instagram App ID and secret into `IG_APP_ID` / `IG_APP_SECRET`.
-2. Under Business login settings, add the redirect URI `https://yourdomain.com/api/instagram/callback`.
-3. Set **Deauthorize callback** to `https://yourdomain.com/api/instagram/deauthorize` and **Data deletion request** to
-   `https://yourdomain.com/api/instagram/data-deletion`. Set the privacy policy URL to `https://yourdomain.com/privacy`.
-4. Request `instagram_business_basic` and `instagram_business_content_publish`.
-5. While the app is in development mode, only accounts added as Instagram testers can connect. Keep
-   `IG_ACCESS_MODE=testers` and the site handles this for you:
-   - The creator enters the coin's Instagram username (on the launch form or the coin page).
-   - It appears in **Admin → Instagram access**. In the Meta dashboard, open App roles → Roles → Add people → Instagram
-     Tester, paste the username, send the invite, then click **Mark invited**.
-   - The creator's coin page then tells them to accept the invite (instagram.com → Settings → Apps and websites → Tester
-     invites) and shows **Log in with Instagram**.
-6. To let anyone connect, submit for **App Review** with a screencast of the connect-and-publish flow, and complete
-   Business Verification. Once approved, set `IG_ACCESS_MODE=open` and redeploy: the login button works for everyone.
-7. Each coin's Instagram must be a Professional (Creator or Business) account. Instagram allows 100 API posts per account
-   per day; this app posts at most 3.
+1. Create an app at developers.tiktok.com. Add **Login Kit** and the **Content Posting API** (turn on **Direct Post**).
+   Copy the Client key and secret into `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`.
+2. Login Kit → Redirect URI: `https://yourdomain.com/api/tiktok/callback`.
+3. Scopes: `user.info.basic`, `user.info.profile`, `video.publish`, `video.upload`, `video.list`.
+4. **URL properties**: verify the domain or URL prefix of `S3_PUBLIC_BASE_URL`. TikTok pulls every video and photo from
+   that URL (`PULL_FROM_URL`), and refuses unverified ones.
+5. Webhooks → Callback URL: `https://yourdomain.com/api/tiktok/webhook`. When a creator removes the app in TikTok, the
+   stored tokens are dropped.
+6. Until TikTok audits the app, only sandbox **target users** can log in, and posts can only be private. Keep
+   `TIKTOK_ACCESS_MODE=testers` and the site handles this for you:
+   - The creator enters the coin's TikTok username (on the launch form or the coin page).
+   - It appears in **Admin → TikTok access**. In the developer portal, open your app's Sandbox → Target users, add the
+     account, then click **Mark added**.
+   - The creator's coin page then shows **Log in with TikTok**.
+   - Posts go out as "only me" automatically while the app is unaudited (the API refuses public posts until then).
+7. To let anyone connect and post publicly, **submit the app for review** with a screencast of the connect-and-publish
+   flow. Once approved, set `TIKTOK_ACCESS_MODE=open` and redeploy: the login button works for everyone.
+8. TikTok caps Direct Post at roughly 15 posts per creator per day, so `CONTENT_MAX_POSTS_PER_DAY` defaults to 15. Posts
+   carry TikTok's AI-generated content label (`is_aigc`). Videos post as TikToks; image posts and carousels post as
+   photo-mode posts (with auto-added music).
+9. **Comment replies (optional).** TikTok's comment API (`comment.list`, `comment.list.manage`) is only available to
+   approved apps. Once your app has those scopes, set `TIKTOK_COMMENTS=true`; creators then reconnect once to grant them.
+   Without it, everything else works and the Comments tab says replies aren't switched on.
+
+Access tokens last 24 hours and are refreshed automatically with the refresh token (valid for a year); creators only log
+in again if they remove the app or don't post for a year.
 
 ## Deploy (Render)
 
@@ -105,7 +114,7 @@ Instagram OAuth needs a public HTTPS redirect, so test the connect flow on your 
 - Watch simulated treasury activity for a few days, then set `TREASURY_DRY_RUN=false`. Start with low platform caps.
 - The platform holds the agent wallets' keys, which makes treasuries custodial. Keep `MASTER_KEY` and the database
   secured, restrict admin wallets, and consider the legal side of running a service that creates and trades tokens and
-  promotes them on social media. Instagram's policies on financial products and branded content apply to these accounts.
+  promotes them on social media. TikTok's policies on financial products, AI-generated content and branded content apply to these accounts.
   Have a lawyer review the Terms and Privacy pages in `web/src/pages/Legal.tsx`.
 
 ## Project layout
@@ -115,8 +124,8 @@ server/src
   config.ts               env validation
   db/                     pool, migrations, Postgres job queue
   domain/                 pure logic: catalog, schemas, persona prompt, captions, schedule, treasury policy
-  services/               pump.fun, PumpPortal, Solana, Instagram, Claude, fal.ai, storage, IPFS, content, treasury
-  http/                   routes: auth (wallet sign-in), coins, posts, instagram, admin
+  services/               pump.fun, PumpPortal, Solana, TikTok, Claude, fal.ai, storage, IPFS, content, treasury
+  http/                   routes: auth (wallet sign-in), coins, posts, tiktok, admin
   worker/                 job runner + minute ticker
 web/src
   pages/                  Home, Launch, Coin, Mine, Admin, Legal

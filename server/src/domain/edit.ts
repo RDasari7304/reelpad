@@ -1,5 +1,5 @@
 /**
- * Editing multi-shot Reels: the ffmpeg command that joins the shots into one Instagram-ready video.
+ * Editing multi-shot videos: the ffmpeg command that joins the shots into one TikTok-ready video.
  * Pure (builds arguments, parses output) so it can be tested without ffmpeg.
  */
 
@@ -22,7 +22,7 @@ const H = 1920;
 
 /**
  * ffmpeg arguments that join the clips with hard cuts into a 1080x1920, 30 fps H.264/AAC MP4
- * (Instagram Reels spec). Each clip's audio gets tiny fades so cuts don't click, a clip without audio
+ * (TikTok's recommended vertical video spec). Each clip's audio gets tiny fades so cuts don't click, a clip without audio
  * gets silence, and the whole soundtrack is loudness-normalised for phones.
  */
 export function concatArgs(clips: ClipInfo[], out: string): string[] {

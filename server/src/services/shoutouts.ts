@@ -18,7 +18,7 @@ import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
 import { generateImage, generateVideo, reelSeconds, reelsHaveAudio } from "./ai/fal.js";
 import type { CoinRow } from "./coins.js";
-import { rehostImageForInstagram, rehostVideo } from "./media.js";
+import { rehostImage, rehostVideo } from "./media.js";
 import { connection, getPriceSol, getTokenBalance } from "./solana.js";
 import { BudgetError, releaseSpend, reserveSpend } from "./spend.js";
 
@@ -256,7 +256,7 @@ export async function generateShoutout(id: string) {
       `Style: ${style}. No text, captions, logos or watermarks.`,
     ].join(" ");
     const image = await generateImage(prompt, coin.image_url, video ? "9:16" : "1:1");
-    const still = await rehostImageForInstagram(image, coin.id, video ? "9:16" : "1:1");
+    const still = await rehostImage(image, coin.id, video ? "9:16" : "1:1");
     const media: Array<{ type: "image" | "video"; url: string; key: string; role?: string }> = [];
     if (video) {
       const label = `${coin.name} is recording`;

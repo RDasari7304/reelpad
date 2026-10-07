@@ -93,7 +93,7 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
   return (
     <div className="editor">
       <h3 className="sub">Personality</h3>
-      <p className="sub-hint">Who your coin's character is on Instagram.</p>
+      <p className="sub-hint">Who your coin's character is on TikTok.</p>
       <ChipChoice
         label="Personality"
         options={config.catalog.personalities}
@@ -121,7 +121,7 @@ export function PersonaEditor({ value, onChange, config }: { value: Persona; onC
         <Field label="Backstory" hint="Optional. Where it came from, what it loves, its running jokes.">
           <textarea className="input" rows={4} maxLength={1500} value={value.backstory} onChange={(e) => set("backstory", e.target.value)} />
         </Field>
-        <Field label="Voice" hint="Optional. How it talks, in captions and out loud in Reels: tone, accent, pace, slang.">
+        <Field label="Voice" hint="Optional. How it talks, in captions and out loud in videos: tone, accent, pace, slang.">
           <textarea className="input" rows={4} maxLength={400} value={value.voice} onChange={(e) => set("voice", e.target.value)} />
         </Field>
         <Field label="Recurring themes" hint="Up to 10, each up to 60 characters. Press Enter after each, or paste a list.">
@@ -143,10 +143,10 @@ const formatLabels = (config: AppConfig): Record<Format, [string, string]> => {
   const shots = config.reels?.shots ?? 1;
   const cut = shots > 1 ? `, edited from ${shots} shots` : "";
   return {
-    image: ["Image posts", "A single image with a caption."],
-    carousel: ["Carousels", "Three to five images telling a short story."],
+    image: ["Photo posts", "A single photo with a caption (TikTok photo mode)."],
+    carousel: ["Photo carousels", "Three to five swipeable photos telling a short story."],
     reel: [
-      "Reels",
+      "Videos",
       config.reels?.audio === false
         ? `About ${secs}-second AI videos${cut}. These cost the most to make, so they're capped per week.`
         : `About ${secs}-second AI videos with sound${cut}, where your character talks to the camera. These cost the most to make, so they're capped per week.`,
@@ -176,7 +176,7 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
         ))}
       </div>
       <div className="grid-2">
-        <Field label="Posts per day" hint="The first post (a Reel, if Reels are on) starts as soon as Instagram is connected.">
+        <Field label="Posts per day" hint="The first post (a video, if videos are on) starts as soon as TikTok is connected.">
           <select className="input" value={value.postsPerDay} onChange={(e) => set("postsPerDay", Number(e.target.value))}>
             {Array.from(
               { length: config.limits.maxPostsPerDay - (config.limits.minPostsPerDay ?? 1) + 1 },
@@ -189,7 +189,7 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
           </select>
         </Field>
         {value.formats.includes("reel") && (
-          <Field label="Reels per week, at most">
+          <Field label="Videos per week, at most">
             <select className="input" value={value.reelsPerWeek} onChange={(e) => set("reelsPerWeek", Number(e.target.value))}>
               {Array.from({ length: config.limits.maxReelsPerWeek + 1 }, (_, i) => i).map((n) => (
                 <option key={n} value={n}>
@@ -218,10 +218,10 @@ export function ContentEditor({ value, onChange, config }: { value: ContentSetti
             onChange={(e) => set("reelLook", e.target.checked ? "film" : "match")}
           />
           <span>
-            <strong>Film-style Reels</strong>
+            <strong>Film-style videos</strong>
             <small>
-              Reels are shot like a scene from a movie: a live-action version of your character in real places, with other
-              people in the scene. Off means Reels use the character's own art style, like its image posts.
+              Videos are shot like a scene from a movie: a live-action version of your character in real places, with other
+              people in the scene. Off means videos use the character's own art style, like its image posts.
             </small>
           </span>
         </label>

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import { captionViolations, finalizeCaption, limitEmojis } from "../src/domain/caption.ts";
 import { CAMERA_SHOTS, CAPTION_STYLES, captionOpener, LIGHTING, pickVariety, POST_ANGLES } from "../src/domain/variety.ts";
 import { LEGACY_PERSONALITIES, PERSONALITIES } from "../src/domain/catalog.ts";
 import { CONTENT_RULES, personaBrief, visualStyleText } from "../src/domain/persona.ts";
-import { normalizeInstagramUsername } from "../src/domain/instagram.ts";
+import { normalizeTikTokUsername, photoTitle, pickPrivacy, postUrl, quotePostIds, verifyWebhookSignature } from "../src/domain/tiktok.ts";
 import { POSTS_PER_DAY } from "../src/domain/limits.ts";
 import { coinPageUrl, coinWebsite } from "../src/domain/links.ts";
 import { applyTier, TIERS } from "../src/domain/tiers.ts";
@@ -27,8 +27,8 @@ import { signRequest, uriEncode } from "../src/lib/sigv4.ts";
 describe("crypto", () => {
   const key = randomBytes(32);
   it("round-trips secrets", () => {
-    const env = encrypt("long-lived-instagram-token", key);
-    assert.equal(decryptString(env, key), "long-lived-instagram-token");
+    const env = encrypt("tiktok-access-token", key);
+    assert.equal(decryptString(env, key), "tiktok-access-token");
     const kp = randomBytes(64);
     assert.deepEqual(decrypt(encrypt(kp, key), key), kp);
   });
@@ -129,7 +129,7 @@ describe("captions", () => {
     const c = finalizeCaption("gm #pepe", ["pepe", "#memes", "art"], "AI persona.");
     assert.equal(c, "gm #pepe\n\n#memes #art\n\nAI persona.");
   });
-  it("stays within Instagram limits", () => {
+  it("stays within TikTok limits", () => {
     const tags = Array.from({ length: 50 }, (_, i) => `tag${i}`);
     const c = finalizeCaption("x".repeat(3000), tags, "footer");
     assert.ok(c.length <= 2200);
@@ -164,17 +164,51 @@ describe("schedule", () => {
   });
 });
 
-describe("instagram username", () => {
+describe("tiktok username", () => {
   it("normalises valid usernames", () => {
-    assert.equal(normalizeInstagramUsername(" @Moon.Cat_1 "), "moon.cat_1");
-    assert.equal(normalizeInstagramUsername("a".repeat(30)), "a".repeat(30));
+    assert.equal(normalizeTikTokUsername(" @Moon.Cat_1 "), "moon.cat_1");
+    assert.equal(normalizeTikTokUsername("a".repeat(24)), "a".repeat(24));
   });
   it("rejects invalid ones", () => {
-    assert.equal(normalizeInstagramUsername("moon cat"), null);
-    assert.equal(normalizeInstagramUsername("a".repeat(31)), null);
-    assert.equal(normalizeInstagramUsername(""), null);
-    assert.equal(normalizeInstagramUsername("@"), null);
-    assert.equal(normalizeInstagramUsername("bad name!"), null);
+    assert.equal(normalizeTikTokUsername("moon cat"), null);
+    assert.equal(normalizeTikTokUsername("a".repeat(25)), null);
+    assert.equal(normalizeTikTokUsername("a"), null);
+    assert.equal(normalizeTikTokUsername("moon."), null);
+    assert.equal(normalizeTikTokUsername(""), null);
+    assert.equal(normalizeTikTokUsername("@"), null);
+    assert.equal(normalizeTikTokUsername("bad name!"), null);
+  });
+});
+
+describe("tiktok publishing helpers", () => {
+  it("uses the configured privacy when allowed, else the most public option", () => {
+    assert.equal(pickPrivacy(["PUBLIC_TO_EVERYONE", "SELF_ONLY"], "PUBLIC_TO_EVERYONE"), "PUBLIC_TO_EVERYONE");
+    assert.equal(pickPrivacy(["FOLLOWER_OF_CREATOR", "SELF_ONLY"], "PUBLIC_TO_EVERYONE"), "FOLLOWER_OF_CREATOR");
+    assert.equal(pickPrivacy(["SELF_ONLY"], "PUBLIC_TO_EVERYONE"), "SELF_ONLY");
+    assert.equal(pickPrivacy([], "PUBLIC_TO_EVERYONE"), "SELF_ONLY");
+  });
+  it("builds a photo title of at most 90 characters without hashtags", () => {
+    assert.equal(photoTitle("gm frens #pepe\n\nmore text"), "gm frens");
+    const t = photoTitle("word ".repeat(40));
+    assert.ok(t.length <= 90 && t.endsWith("…"));
+  });
+  it("keeps 64-bit post ids exact", () => {
+    const raw = '{"data":{"status":"PUBLISH_COMPLETE","publicaly_available_post_id":[7400000000000000001, 7400000000000000002]},"error":{"code":"ok"}}';
+    assert.deepEqual(JSON.parse(quotePostIds(raw)).data.publicaly_available_post_id, ["7400000000000000001", "7400000000000000002"]);
+    assert.equal(quotePostIds('{"data":{"status":"PROCESSING_UPLOAD"}}'), '{"data":{"status":"PROCESSING_UPLOAD"}}');
+  });
+  it("links to the post", () => {
+    assert.equal(postUrl("moon.cat", "123", "video"), "https://www.tiktok.com/@moon.cat/video/123");
+  });
+  it("verifies webhook signatures", () => {
+    const secret = "s3cret";
+    const body = '{"event":"authorization.removed","user_openid":"abc"}';
+    const t = 1_700_000_000;
+    const sig = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
+    assert.equal(verifyWebhookSignature(`t=${t},s=${sig}`, body, secret, t + 10), true);
+    assert.equal(verifyWebhookSignature(`t=${t},s=${sig}`, body + " ", secret, t + 10), false);
+    assert.equal(verifyWebhookSignature(`t=${t},s=${sig}`, body, secret, t + 3600), false);
+    assert.equal(verifyWebhookSignature("garbage", body, secret, t), false);
   });
 });
 
@@ -367,8 +401,8 @@ describe("the Room", () => {
 });
 
 describe("token website", () => {
-  it("points to the Instagram profile when there is one", () => {
-    assert.equal(coinWebsite("https://reelpad.fun", "Mint1", "the_daytraderr"), "https://www.instagram.com/the_daytraderr/");
+  it("points to the TikTok profile when there is one", () => {
+    assert.equal(coinWebsite("https://reelpad.fun", "Mint1", "the_daytraderr"), "https://www.tiktok.com/@the_daytraderr");
     assert.equal(coinWebsite("https://reelpad.fun", "Mint1", null), "https://reelpad.fun/coin/Mint1");
   });
 });

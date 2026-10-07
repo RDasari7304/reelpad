@@ -2,7 +2,7 @@
   "name": "reelpad",
   "private": true,
   "version": "1.0.0",
-  "description": "Launch a pump.fun coin with its own AI Instagram influencer and on-chain treasury agent.",
+  "description": "Launch a pump.fun coin with its own AI TikTok influencer and on-chain treasury agent.",
   "workspaces": [
     "server",
     "web"

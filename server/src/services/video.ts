@@ -91,7 +91,7 @@ export async function editReel(clipUrls: string[], coinId: string): Promise<{ ur
     for (let i = 0; i < clipUrls.length; i++) clips.push(await probe(bin, join(dir, `shot${i}.mp4`)));
     const out = join(dir, "reel.mp4");
     const r = await runCmd(bin, concatArgs(clips, out));
-    if (r.code !== 0) throw new Error(`Editing the Reel failed: ${r.stderr.slice(-300)}`);
+    if (r.code !== 0) throw new Error(`Editing the video failed: ${r.stderr.slice(-300)}`);
     const buf = await readFile(out);
     const key = mediaKey(coinId, "mp4");
     const url = await putObject(key, buf, "video/mp4");

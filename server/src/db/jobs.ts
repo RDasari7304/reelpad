@@ -9,7 +9,7 @@ export type JobType =
   | "content.generate"
   | "content.publish"
   | "treasury.run"
-  | "instagram.refresh"
+  | "tiktok.refresh"
   | "launch.confirm"
   | "room.converse"
   | "comments.sync"

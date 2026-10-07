@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react(), nodePolyfills({ include: ["buffer", "crypto", "stream"], globals: { Buffer: true } })],
   server: {
     port: 5173,
-    // Allow HTTPS tunnels (ngrok/cloudflared) in dev, needed to test Instagram login locally.
+    // Allow HTTPS tunnels (ngrok/cloudflared) in dev, needed to test TikTok login locally.
     allowedHosts: true,
     proxy: { "/api": { target: "http://localhost:8080", changeOrigin: false } },
   },

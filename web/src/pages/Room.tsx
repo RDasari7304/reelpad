@@ -23,7 +23,7 @@ interface Character {
   name: string;
   symbol: string;
   imageUrl: string;
-  instagram: string | null;
+  tiktok: string | null;
   personality: string;
   mood: string | null;
 }
@@ -39,7 +39,7 @@ interface Profile {
   symbol: string;
   description: string;
   imageUrl: string;
-  instagram: string | null;
+  tiktok: string | null;
   personality: string;
   personalityLabel: string;
   backstory: string;
@@ -361,7 +361,7 @@ export default function Room() {
   const partnerId = selConvoLive ? (selConvoLive.a === selected ? selConvoLive.b : selConvoLive.a) : null;
   const profile = useProfile(selected);
   const partner = useProfile(partnerId);
-  const filtered = chars.filter((c) => `${c.name} ${c.symbol} ${c.instagram ?? ""}`.toLowerCase().includes(search.toLowerCase()));
+  const filtered = chars.filter((c) => `${c.name} ${c.symbol} ${c.tiktok ?? ""}`.toLowerCase().includes(search.toLowerCase()));
   const talkingNow = convos.filter((c) => convoState(c, t) === "talking").length;
 
   return (
@@ -480,9 +480,9 @@ export default function Room() {
                 <Link className="btn btn-small btn-quiet" to={`/coin/${sel.mint ?? sel.id}`}>
                   Coin page
                 </Link>
-                {sel.instagram && (
-                  <a className="btn btn-small btn-quiet" href={`https://instagram.com/${sel.instagram}`} target="_blank" rel="noreferrer">
-                    @{sel.instagram}
+                {sel.tiktok && (
+                  <a className="btn btn-small btn-quiet" href={`https://www.tiktok.com/@${sel.tiktok}`} target="_blank" rel="noreferrer">
+                    @{sel.tiktok}
                   </a>
                 )}
               </div>

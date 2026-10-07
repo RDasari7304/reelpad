@@ -40,7 +40,7 @@ export async function createDraft(wallet: string, draft: CoinDraft, image: Buffe
       draft.name,
       draft.symbol,
       draft.description,
-      coinWebsite(config.PUBLIC_URL, mint.publicKey.toBase58(), draft.instagramUsername), // the influencer's Instagram
+      coinWebsite(config.PUBLIC_URL, mint.publicKey.toBase58(), draft.tiktokUsername), // the influencer's TikTok
       draft.twitter ?? null,
       draft.telegram ?? null,
       agent.publicKey.toBase58(),
@@ -55,10 +55,10 @@ export async function createDraft(wallet: string, draft: CoinDraft, image: Buffe
   const coin = row!;
   try {
     const [imageUrl, ipfs] = await Promise.all([putObject(mediaKey(coin.id, "png"), png, "image/png"), pinImage(png, "image/png")]);
-    if (draft.instagramUsername) {
-      await query(`INSERT INTO instagram_access_requests(coin_id, username) VALUES ($1, $2) ON CONFLICT (coin_id) DO NOTHING`, [
+    if (draft.tiktokUsername) {
+      await query(`INSERT INTO tiktok_access_requests(coin_id, username) VALUES ($1, $2) ON CONFLICT (coin_id) DO NOTHING`, [
         coin.id,
-        draft.instagramUsername,
+        draft.tiktokUsername,
       ]);
     }
     return (await one<CoinRow>(`UPDATE coins SET image_url = $2, image_ipfs = $3 WHERE id = $1 RETURNING *`, [coin.id, imageUrl, ipfs]))!;
@@ -74,9 +74,9 @@ export async function prepareLaunch(coin: CoinRow, wallet: string) {
   if (!["draft", "awaiting_signature", "failed"].includes(coin.status)) throw new LaunchError(`Coin is already ${coin.status}`);
   if (!coin.mint_secret_enc) throw new LaunchError("Mint key missing");
 
-  // The website is the influencer's Instagram profile (or the Reelpad page if no account was given),
+  // The website is the influencer's TikTok profile (or the Reelpad page if no account was given),
   // fixed at launch. Re-pin if the username changed before launch.
-  const access = await one<{ username: string }>(`SELECT username FROM instagram_access_requests WHERE coin_id = $1`, [coin.id]);
+  const access = await one<{ username: string }>(`SELECT username FROM tiktok_access_requests WHERE coin_id = $1`, [coin.id]);
   const website = coinWebsite(config.PUBLIC_URL, coin.mint!, access?.username);
   const metadataUri =
     (coin.metadata_uri && coin.website === website ? coin.metadata_uri : null) ??
@@ -86,7 +86,7 @@ export async function prepareLaunch(coin: CoinRow, wallet: string) {
       description: coin.description,
       image: coin.image_ipfs,
       website,
-      instagram: access?.username ? website : undefined,
+      tiktok: access?.username ? website : undefined,
       twitter: coin.twitter ?? undefined,
       telegram: coin.telegram ?? undefined,
     }));

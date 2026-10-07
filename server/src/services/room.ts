@@ -22,12 +22,12 @@ const VIEW_WINDOW_MIN = 5;
 type Char = Pick<CoinRow, "id" | "name" | "symbol" | "description" | "persona" | "image_url" | "mint">;
 
 export async function roomCharacters() {
-  const r = await query<Char & { ig_username: string | null; mood: string | null; launched_at: Date }>(
+  const r = await query<Char & { tt_username: string | null; mood: string | null; launched_at: Date }>(
     `SELECT c.id, c.name, c.symbol, c.description, c.persona, c.image_url, c.mint, c.launched_at,
-            i.username AS ig_username,
+            i.username AS tt_username,
             (SELECT plan->>'mood' FROM posts p WHERE p.coin_id = c.id AND p.plan ? 'mood'
              ORDER BY created_at DESC LIMIT 1) AS mood
-     FROM coins c LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+     FROM coins c LEFT JOIN tiktok_accounts i ON i.coin_id = c.id AND i.status = 'active'
      WHERE c.status = 'live' AND c.activity_state <> 'dormant'
      ORDER BY c.launched_at DESC LIMIT $1`,
     [MAX_CHARACTERS],
@@ -85,7 +85,7 @@ export async function roomState() {
       name: c.name,
       symbol: c.symbol,
       imageUrl: c.image_url,
-      instagram: c.ig_username,
+      tiktok: c.tt_username,
       personality: personalityLabel(c.persona),
       mood: c.mood,
     })),
@@ -95,9 +95,9 @@ export async function roomState() {
 
 /** Public profile for the side panel: backstory, voice, recent posts and who they've met. */
 export async function roomProfile(coinId: string) {
-  const c = await one<CoinRow & { ig_username: string | null }>(
-    `SELECT c.*, i.username AS ig_username FROM coins c
-     LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+  const c = await one<CoinRow & { tt_username: string | null }>(
+    `SELECT c.*, i.username AS tt_username FROM coins c
+     LEFT JOIN tiktok_accounts i ON i.coin_id = c.id AND i.status = 'active'
      WHERE c.id = $1 AND c.status = 'live'`,
     [coinId],
   );
@@ -126,7 +126,7 @@ export async function roomProfile(coinId: string) {
     symbol: c.symbol,
     description: c.description,
     imageUrl: c.image_url,
-    instagram: c.ig_username,
+    tiktok: c.tt_username,
     personality: personalityText(p),
     personalityLabel: personalityLabel(p),
     backstory: p.backstory ?? "",
@@ -293,7 +293,7 @@ export async function converse() {
     })
     .join("\n");
 
-  const system = `You write short, natural, in-person conversations between AI influencer characters who live in "the Room", a shared hangout on Reelpad where every coin's character wanders around and bumps into the others. Each character is the face of a pump.fun coin and posts on Instagram.
+  const system = `You write short, natural, in-person conversations between AI influencer characters who live in "the Room", a shared hangout on Reelpad where every coin's character wanders around and bumps into the others. Each character is the face of a pump.fun coin and posts on TikTok.
 
 How to write it:
 - Both stay fully in character: their personality, backstory, way of talking and current mood shape every line.
@@ -352,7 +352,7 @@ Hard rules: no financial advice, no price predictions, never tell anyone to buy 
   logger.info({ a: A.symbol, b: B.symbol, topic: plan.topic }, "room conversation scheduled");
 }
 
-/** Recent Room memories for one character, so its Instagram posts can mention who it met. */
+/** Recent Room memories for one character, so its TikTok posts can mention who it met. */
 export async function roomMemories(coinId: string, limit = 3) {
   const r = await query<{ memory: string; other: string; starts_at: Date }>(
     `SELECT CASE WHEN r.coin_a = $1 THEN r.memory_a ELSE r.memory_b END AS memory, o.name AS other, r.starts_at

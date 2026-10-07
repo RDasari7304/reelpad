@@ -30,8 +30,9 @@ export function limitEmojis(text: string, max = 1): string {
     .trim();
 }
 
-const IG_CAPTION_MAX = 2200;
-const IG_HASHTAG_MAX = 30;
+// TikTok: video captions up to 2200 characters (photo descriptions allow 4000).
+const CAPTION_MAX = 2200;
+const HASHTAG_MAX = 30;
 
 export function finalizeCaption(body: string, hashtags: string[], footer: string, maxEmojis = 1): string {
   const cleanBody = limitEmojis(body, maxEmojis).replace(/\s+$/g, "").replace(/\n{3,}/g, "\n\n").trim();
@@ -43,16 +44,16 @@ export function finalizeCaption(body: string, hashtags: string[], footer: string
     existing.add(tag.toLowerCase());
     extra.push(tag);
   }
-  let tags = extra.slice(0, Math.max(0, IG_HASHTAG_MAX - (existing.size - extra.length)));
+  let tags = extra.slice(0, Math.max(0, HASHTAG_MAX - (existing.size - extra.length)));
   const parts = () => [cleanBody, tags.join(" "), footer.trim()].filter(Boolean).join("\n\n");
   let out = parts();
-  while (out.length > IG_CAPTION_MAX && tags.length) {
+  while (out.length > CAPTION_MAX && tags.length) {
     tags = tags.slice(0, -1);
     out = parts();
   }
-  if (out.length > IG_CAPTION_MAX) {
+  if (out.length > CAPTION_MAX) {
     const tail = footer.trim() ? "\n\n" + footer.trim() : "";
-    out = cleanBody.slice(0, IG_CAPTION_MAX - tail.length - 1).trimEnd() + "…" + tail;
+    out = cleanBody.slice(0, CAPTION_MAX - tail.length - 1).trimEnd() + "…" + tail;
   }
   return out;
 }

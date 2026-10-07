@@ -2,7 +2,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, humanize, normalizeInstagramUsername, type AppConfig, type Coin, type ContentSettings, type Persona } from "../api";
+import { api, ApiError, humanize, normalizeTikTokUsername, type AppConfig, type Coin, type ContentSettings, type Persona } from "../api";
 import { Field, Notice } from "../components";
 import {
   ContentEditor,
@@ -28,21 +28,22 @@ const STAGE_TEXT: Record<Stage, string> = {
 
 function ProfilePreview(props: { name: string; symbol: string; description: string; image: string | null; persona: Persona; config: AppConfig }) {
   const { name, symbol, description, image, persona, config } = props;
-  const handle = (name || "yourcoin").toLowerCase().replace(/[^a-z0-9_.]/g, "").slice(0, 24) || "yourcoin";
+  const handle = (name || "yourcoin").toLowerCase().replace(/[^a-z0-9_.]/g, "").slice(0, 24).replace(/\.+$/, "") || "yourcoin";
   const trait =
     persona.personality === "custom" ? persona.personalityCustom : persona.personality ? config.catalog.personalities[persona.personality] : "";
   const style = persona.visualStyle === "custom" ? persona.visualStyleCustom || "Custom style" : humanize(persona.visualStyle);
   return (
     <aside className="phone" aria-label="Influencer profile preview">
       <div className="phone-screen">
-        <div className="ig-top">
-          <span className="ig-handle">{handle}</span>
+        <div className="tt-top">
+          <span className="tt-name">{name || "Your coin"}</span>
         </div>
-        <div className="ig-head">
-          <div className="ig-avatar">{image ? <img src={image} alt="" /> : <span>{symbol ? symbol[0] : "?"}</span>}</div>
-          <dl className="ig-stats">
+        <div className="tt-head">
+          <div className="tt-avatar">{image ? <img src={image} alt="" /> : <span>{symbol ? symbol[0] : "?"}</span>}</div>
+          <span className="tt-handle">@{handle}</span>
+          <dl className="tt-stats">
             <div>
-              <dt>Posts</dt>
+              <dt>Following</dt>
               <dd>0</dd>
             </div>
             <div>
@@ -50,21 +51,23 @@ function ProfilePreview(props: { name: string; symbol: string; description: stri
               <dd>0</dd>
             </div>
             <div>
-              <dt>Following</dt>
+              <dt>Likes</dt>
               <dd>0</dd>
             </div>
           </dl>
         </div>
-        <div className="ig-bio">
-          <strong>{name || "Your coin"}</strong>
-          <span className="ig-ticker">{symbol ? `$${symbol}` : "$TICKER"}</span>
+        <div className="tt-bio">
           <p>{description || trait || "Your character's bio shows up here."}</p>
-          <span className="ig-tag">AI character</span>
+          <span className="tt-ticker">{symbol ? `$${symbol}` : "$TICKER"}</span>
+          <span className="tt-tag">AI-generated</span>
         </div>
-        <div className="ig-grid">
-          {Array.from({ length: 9 }, (_, i) => (
-            <div key={i} className="ig-cell" style={image ? { backgroundImage: `url(${image})` } : undefined}>
-              {i === 0 && <span>{style}</span>}
+        <div className="tt-grid">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="tt-cell" style={image ? { backgroundImage: `url(${image})` } : undefined}>
+              {i === 0 && <span className="tt-style">{style}</span>}
+              <span className="tt-plays" aria-hidden>
+                ▷ 0
+              </span>
             </div>
           ))}
         </div>
@@ -90,7 +93,7 @@ export default function Launch() {
   const [preview, setPreview] = useState<string | null>(null);
   const [persona, setPersona] = useState<Persona>(defaultPersona);
   const [content, setContent] = useState<ContentSettings>(defaultContent);
-  const [igUsername, setIgUsername] = useState("");
+  const [ttUsername, setTtUsername] = useState("");
   const [devBuy, setDevBuy] = useState("0");
   const [accepted, setAccepted] = useState(false);
 
@@ -115,9 +118,9 @@ export default function Launch() {
   if (!config) return <div className="page narrow" aria-busy="true" />;
 
   const busy = stage !== "idle" && stage !== "done";
-  const igNorm = normalizeInstagramUsername(igUsername);
-  const igValid = !igUsername.trim() || igNorm !== null;
-  const canSubmit = name.trim() && symbol.trim() && (file || coin) && accepted && igValid && !busy;
+  const ttNorm = normalizeTikTokUsername(ttUsername);
+  const ttValid = !ttUsername.trim() || ttNorm !== null;
+  const canSubmit = name.trim() && symbol.trim() && (file || coin) && accepted && ttValid && !busy;
 
   async function launch() {
     setError(null);
@@ -142,7 +145,7 @@ export default function Launch() {
             description,
             twitter: twitter || undefined,
             telegram: telegram || undefined,
-            instagramUsername: igNorm ?? undefined,
+            tiktokUsername: ttNorm ?? undefined,
             persona,
             contentSettings: content,
           }),
@@ -206,7 +209,7 @@ export default function Launch() {
                   disabled={!!coin}
                 />
               </Field>
-              <Field label="Description" hint="Shown on pump.fun and in the Instagram bio.">
+              <Field label="Description" hint="Shown on pump.fun and in the TikTok bio.">
                 <textarea className="input" rows={3} maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!!coin} />
               </Field>
             </div>
@@ -214,8 +217,8 @@ export default function Launch() {
           <details className="more">
             <summary>Links</summary>
             <div className="grid-3">
-              <Field label="Website" hint="Set automatically: the influencer's page on Reelpad, or its Instagram if you add one in step 3.">
-                <input className="input" value={igNorm ? `instagram.com/${igNorm}` : "reelpad.fun/coin/…"} readOnly disabled />
+              <Field label="Website" hint="Set automatically: the influencer's page on Reelpad, or its TikTok if you add one in step 3.">
+                <input className="input" value={ttNorm ? `tiktok.com/@${ttNorm}` : "reelpad.fun/coin/…"} readOnly disabled />
               </Field>
               <Field label="X">
                 <input className="input" type="url" placeholder="https://x.com/…" value={twitter} onChange={(e) => setTwitter(e.target.value)} disabled={!!coin} />
@@ -240,21 +243,21 @@ export default function Launch() {
           </h2>
           <div className="grid-2">
             <Field
-              label="Instagram account (optional)"
-              error={igValid ? undefined : "Use letters, numbers, periods and underscores (max 30)."}
+              label="TikTok account (optional)"
+              error={ttValid ? undefined : "Use letters, numbers, periods and underscores (2-24, not ending in a period)."}
               hint={
-                "Your influencer lives on Reelpad from the moment it launches. Add an Instagram account (Creator or Business) to also post there and make it the token's website on pump.fun. You can also connect one any time after launch; the website then stays the Reelpad page."
+                "Your influencer lives on Reelpad from the moment it launches. Add a TikTok account to also post there and make it the token's website on pump.fun. You can also connect one any time after launch; the website then stays the Reelpad page."
               }
             >
               <input
                 className="input"
-                value={igUsername}
+                value={ttUsername}
                 placeholder="@mooncat.coin"
-                maxLength={31}
+                maxLength={25}
                 autoCapitalize="off"
                 autoComplete="off"
                 spellCheck={false}
-                onChange={(e) => setIgUsername(e.target.value)}
+                onChange={(e) => setTtUsername(e.target.value)}
                 disabled={!!coin}
               />
             </Field>
@@ -311,13 +314,13 @@ export default function Launch() {
               <strong>I understand</strong>
               <small>
                 The coin is created on pump.fun from my wallet, its creator fees go to an AI-run treasury that automatically buys back and burns the coin, I can't withdraw from it, and
-                the AI character posts publicly on Reelpad (and on Instagram, if I connect an account). I've read the Terms.
+                the AI character posts publicly on Reelpad (and on TikTok, if I connect an account). I've read the Terms.
               </small>
             </span>
           </label>
           {error && <Notice tone="error">{error}</Notice>}
           {busy && <Notice>{STAGE_TEXT[stage]}</Notice>}
-          {publicKey && !coin && !igValid && <p className="sub-hint">Fix the Instagram username in step 3, or leave it empty.</p>}
+          {publicKey && !coin && !ttValid && <p className="sub-hint">Fix the TikTok username in step 3, or leave it empty.</p>}
           <button className="btn btn-primary btn-big" onClick={launch} disabled={publicKey ? !canSubmit : false}>
             {!publicKey ? "Connect wallet to launch" : coin ? "Try launching again" : "Launch coin"}
           </button>

@@ -1,8 +1,8 @@
 import sharp from "sharp";
 import { mediaKey, putObject, rehost } from "./storage.js";
 
-/** Instagram's publishing API only accepts JPEG images; normalise everything we post. */
-export async function rehostImageForInstagram(remoteUrl: string, coinId: string, aspect: "1:1" | "9:16") {
+/** TikTok photo posts accept JPEG or WEBP; normalise everything we post to JPEG. */
+export async function rehostImage(remoteUrl: string, coinId: string, aspect: "1:1" | "9:16") {
   const res = await fetch(remoteUrl);
   if (!res.ok) throw new Error(`Failed to download generated image (${res.status})`);
   const input = Buffer.from(await res.arrayBuffer());
