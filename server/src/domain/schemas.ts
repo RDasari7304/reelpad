@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ALL_PERSONALITIES, VISUAL_STYLES } from "./catalog.js";
-import { INSTAGRAM_USERNAME_MESSAGE, normalizeInstagramUsername } from "./instagram.js";
+import { TIKTOK_USERNAME_MESSAGE, normalizeTikTokUsername } from "./tiktok.js";
 import { POSTS_PER_DAY } from "./limits.js";
 
 export { POSTS_PER_DAY };
@@ -56,25 +56,25 @@ const optionalUrl = z
   .transform((v) => (v ? v : undefined))
   .pipe(z.string().url().optional());
 
-/** Instagram username: letters, numbers, periods and underscores, up to 30 characters. Leading @ is dropped. */
-export const instagramUsernameSchema = z.string().transform((s, ctx) => {
-  const u = normalizeInstagramUsername(s);
+/** TikTok username: letters, numbers, periods and underscores, 2 to 24 characters. Leading @ is dropped. */
+export const tiktokUsernameSchema = z.string().transform((s, ctx) => {
+  const u = normalizeTikTokUsername(s);
   if (u === null) {
-    ctx.addIssue({ code: "custom", message: INSTAGRAM_USERNAME_MESSAGE });
+    ctx.addIssue({ code: "custom", message: TIKTOK_USERNAME_MESSAGE });
     return z.NEVER;
   }
   return u;
 });
 
 export const coinDraftSchema = z.object({
-  // Optional: every influencer lives on Reelpad from launch. If an Instagram account is given here, the
+  // Optional: every influencer lives on Reelpad from launch. If a TikTok account is given here, the
   // token's website on pump.fun links to it; otherwise the website is the coin's Reelpad page.
-  instagramUsername: z
+  tiktokUsername: z
     .string()
     .trim()
     .optional()
     .transform((s) => (s ? s : undefined))
-    .pipe(instagramUsernameSchema.optional()),
+    .pipe(tiktokUsernameSchema.optional()),
   name: z.string().trim().min(1).max(32),
   symbol: z
     .string()

@@ -9,7 +9,7 @@ interface Overview {
   aiSpendToday: number;
   aiBudget: number;
   treasuryDryRun: boolean;
-  igAccessMode: "testers" | "open";
+  tiktokAccessMode: "testers" | "open";
   coins: Array<{ status: string; n: number }>;
   posts24h: Array<{ status: string; n: number }>;
   failedJobs24h: Array<{ type: string; n: number }>;
@@ -55,7 +55,7 @@ export default function Admin() {
           </span>
         </label>
       ))}
-      <h2 className="sub-section">Coins and Instagram access</h2>
+      <h2 className="sub-section">Coins and TikTok access</h2>
       <AdminCoins />
       <h2 className="sub-section">Today</h2>
       <dl className="treasury-figures">

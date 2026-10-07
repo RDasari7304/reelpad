@@ -8,7 +8,7 @@ import { CommentsTab } from "../CommentsTab";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { StoryCard } from "../StoryCard";
 import { ShoutoutsTab } from "../Shoutouts";
-import { InstagramConnect } from "../InstagramConnect";
+import { TikTokConnect } from "../TikTokConnect";
 import { DexScreenerChart } from "../DexScreenerChart";
 import { PriceChart } from "../PriceChart";
 import { useSession } from "../session";
@@ -29,7 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
 /** Statuses where the post is still being made or posted; shown as a loading card. */
 const IN_PROGRESS = new Set(["planned", "generating", "ready", "publishing"]);
 
-const FORMAT_LABEL: Record<Post["format"], string> = { image: "Image post", carousel: "Carousel", reel: "Reel" };
+const FORMAT_LABEL: Record<Post["format"], string> = { image: "Photo post", carousel: "Photo carousel", reel: "Video" };
 
 function sinceLabel(iso: string) {
   const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
@@ -98,7 +98,7 @@ function PostTile({ post, owner, onChange }: { post: Post; owner: boolean; onCha
         ) : (
           <div className="post-placeholder">{post.status === "failed" ? "No media" : "Generating…"}</div>
         )}
-        {post.format !== "image" && <span className="post-format">{post.format === "reel" ? "Reel" : `${post.media.length} images`}</span>}
+        {post.format !== "image" && <span className="post-format">{post.format === "reel" ? "Video" : `${post.media.length} photos`}</span>}
       </div>
       <div className="post-body">
         {owner && <span className={`status status-${post.status}`}>{STATUS_LABEL[post.status] ?? post.status}</span>}
@@ -117,7 +117,7 @@ function PostTile({ post, owner, onChange }: { post: Post; owner: boolean; onCha
         <div className="post-actions">
           {post.permalink && (
             <a href={post.permalink} target="_blank" rel="noreferrer">
-              View on Instagram
+              View on TikTok
             </a>
           )}
           {owner && post.status === "awaiting_approval" && (
@@ -358,12 +358,12 @@ export default function CoinPage() {
     load();
   }, [load, wallet]);
 
-  // While waiting to be added as an Instagram tester, check every 30s so the next step appears on its own.
+  // While waiting to be added as a TikTok sandbox user, check every 30s so the next step appears on its own.
   useEffect(() => {
-    if (!coin?.isOwner || coin.instagramAccess?.status !== "pending") return;
+    if (!coin?.isOwner || coin.tiktokAccess?.status !== "pending") return;
     const id = setInterval(load, 30_000);
     return () => clearInterval(id);
-  }, [coin?.isOwner, coin?.instagramAccess?.status, load]);
+  }, [coin?.isOwner, coin?.tiktokAccess?.status, load]);
 
   // Refresh every few seconds while a post is being made (or expected to start), so the progress card moves.
   const [expectUntil, setExpectUntil] = useState(0);
@@ -378,15 +378,15 @@ export default function CoinPage() {
   }, [making, expectUntil, load]);
 
   useEffect(() => {
-    if (params.get("ig") === "connected") {
-      setFlash("Instagram connected. Your first post is being made now. Watch its progress below.");
+    if (params.get("tt") === "connected") {
+      setFlash("TikTok connected. Your next post is being made now. Watch its progress below.");
       setTab("posts");
       setExpectUntil(Date.now() + 120_000);
     }
-    if (params.get("ig_error")) setError(params.get("ig_error"));
-    if (params.has("ig") || params.has("ig_error")) {
-      params.delete("ig");
-      params.delete("ig_error");
+    if (params.get("tt_error")) setError(params.get("tt_error"));
+    if (params.has("tt") || params.has("tt_error")) {
+      params.delete("tt");
+      params.delete("tt_error");
       setParams(params, { replace: true });
     }
   }, [params, setParams]);
@@ -397,7 +397,7 @@ export default function CoinPage() {
   const owner = !!coin.isOwner;
   const couldOwn = !owner && publicKey?.toBase58() === coin.creatorWallet;
   const launched = params.get("launched") === "1";
-  const igActive = coin.instagram?.status === "active";
+  const ttActive = coin.tiktok?.status === "active";
   const hasChart = coin.status === "live" && !!coin.mint;
   const shown: Tab = (tab === "chart" || tab === "shoutouts") && !hasChart ? "posts" : tab;
 
@@ -422,9 +422,9 @@ export default function CoinPage() {
             {coin.name} <span className="profile-ticker">${coin.symbol}</span>
           </h1>
           <p className="profile-handle">
-            {igActive && coin.instagram ? (
-              <a href={`https://instagram.com/${coin.instagram.username}`} target="_blank" rel="noreferrer">
-                @{coin.instagram.username}
+            {ttActive && coin.tiktok ? (
+              <a href={`https://www.tiktok.com/@${coin.tiktok.username}`} target="_blank" rel="noreferrer">
+                @{coin.tiktok.username}
               </a>
             ) : (
               <span className="pad-native">Lives on Reelpad</span>
@@ -466,7 +466,7 @@ export default function CoinPage() {
       )}
       {coin.status === "live" && coin.activity === "cooling" && owner && (
         <Notice>
-          Trading in ${coin.symbol} has slowed down, so {coin.name} is posting a few times a day (no Reels) until it picks back up.
+          Trading in ${coin.symbol} has slowed down, so {coin.name} is posting a few times a day (no videos) until it picks back up.
         </Notice>
       )}
       {coin.status === "live" && coin.activity !== "dormant" && (
@@ -500,10 +500,10 @@ export default function CoinPage() {
         </Notice>
       )}
 
-      {owner && coin.status === "live" && !igActive && <InstagramConnect coin={coin} launched={launched} onChange={setCoin} />}
+      {owner && coin.status === "live" && !ttActive && <TikTokConnect coin={coin} launched={launched} onChange={setCoin} />}
 
       <nav className="tabs" role="tablist">
-        {(["posts", ...(igActive || owner ? ["comments"] : []), ...(hasChart ? ["chart", "shoutouts"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
+        {(["posts", ...(ttActive || owner ? ["comments"] : []), ...(hasChart ? ["chart", "shoutouts"] : []), "treasury", ...(owner ? ["settings"] : [])] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={shown === t} className={shown === t ? "tab on" : "tab"} onClick={() => setTab(t)}>
             {t === "chart" ? "Chart" : t === "posts" ? "Posts" : t === "comments" ? "Comments" : t === "shoutouts" ? "Shoutouts" : t === "treasury" ? "Treasury" : "Settings"}
           </button>
@@ -550,16 +550,16 @@ export default function CoinPage() {
       {shown === "settings" && owner && (
         <>
           <SettingsTab coin={coin} onSaved={setCoin} />
-          {igActive && (
+          {ttActive && (
             <button
               className="btn btn-quiet danger"
               onClick={async () => {
-                if (!confirm("Disconnect Instagram? The character stops posting until you reconnect.")) return;
-                await api("/instagram/disconnect", { method: "POST", json: { coinId: coin.id } });
+                if (!confirm("Disconnect TikTok? The character keeps posting on Reelpad but stops posting to TikTok until you reconnect.")) return;
+                await api("/tiktok/disconnect", { method: "POST", json: { coinId: coin.id } });
                 load();
               }}
             >
-              Disconnect Instagram
+              Disconnect TikTok
             </button>
           )}
         </>

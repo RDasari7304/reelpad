@@ -22,8 +22,8 @@ services:
         value: "false"
       - key: RUN_WORKER
         value: "true"
-      # Switch to "open" once Meta approves the app
-      - key: IG_ACCESS_MODE
+      # Switch to "open" once TikTok approves the app
+      - key: TIKTOK_ACCESS_MODE
         value: testers
       - key: JWT_SECRET
         generateValue: true
@@ -52,9 +52,9 @@ services:
         sync: false
       - key: S3_PUBLIC_BASE_URL
         sync: false
-      - key: IG_APP_ID
+      - key: TIKTOK_CLIENT_KEY
         sync: false
-      - key: IG_APP_SECRET
+      - key: TIKTOK_CLIENT_SECRET
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false

@@ -698,22 +698,23 @@ textarea.input {
   box-shadow: var(--shadow-print);
   overflow: hidden;
 }
-.ig-top {
+.tt-top {
   text-align: center;
   font-weight: 700;
-  padding-bottom: 12px;
+  padding-bottom: 10px;
 }
-.ig-handle {
+.tt-name {
   font-size: var(--t-sm);
 }
-.ig-head {
+.tt-head {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 6px;
 }
-.ig-avatar {
-  width: 72px;
-  height: 72px;
+.tt-avatar {
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
   background: var(--paper-deep);
   display: grid;
@@ -722,52 +723,54 @@ textarea.input {
   flex: none;
   font: 800 var(--t-lg) var(--display);
   color: var(--ink-soft);
-  outline: 2px solid var(--violet);
-  outline-offset: 2px;
 }
-.ig-avatar img {
+.tt-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.ig-stats {
+.tt-handle {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tt-stats {
   display: flex;
-  flex: 1;
-  justify-content: space-around;
-  margin: 0;
+  justify-content: center;
+  gap: 18px;
+  margin: 4px 0 0;
   text-align: center;
 }
-.ig-stats dt {
-  font-size: 11px;
-  color: var(--ink-soft);
-  order: 2;
-}
-.ig-stats div {
+.tt-stats div {
   display: flex;
   flex-direction: column-reverse;
 }
-.ig-stats dd {
+.tt-stats dt {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.tt-stats dd {
   margin: 0;
   font-weight: 700;
 }
-.ig-bio {
+.tt-bio {
   font-size: 13px;
-  margin: 12px 0;
+  margin: 10px 0 12px;
   line-height: 1.4;
+  text-align: center;
 }
-.ig-bio p {
-  margin: 4px 0;
+.tt-bio p {
+  margin: 0 0 4px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.ig-ticker {
-  margin-left: 6px;
+.tt-ticker {
+  margin-right: 6px;
   color: var(--violet-deep);
   font-weight: 600;
 }
-.ig-tag {
+.tt-tag {
   display: inline-block;
   font-size: 11px;
   background: var(--paper);
@@ -775,31 +778,38 @@ textarea.input {
   padding: 1px 6px;
   color: var(--ink-soft);
 }
-.ig-grid {
+.tt-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
   margin: 0 -14px -14px;
 }
-.ig-cell {
-  aspect-ratio: 1;
+.tt-cell {
+  aspect-ratio: 3 / 4;
   background: var(--paper-deep) center / cover;
   position: relative;
 }
-.ig-cell:nth-child(2n) {
+.tt-cell:nth-child(2n) {
   filter: saturate(0.6) brightness(1.05);
 }
-.ig-cell:nth-child(3n) {
+.tt-cell:nth-child(3n) {
   filter: hue-rotate(25deg);
 }
-.ig-cell span {
+.tt-style {
   position: absolute;
   left: 4px;
-  bottom: 4px;
+  top: 4px;
   font-size: 10px;
   background: rgb(255 255 255 / 0.88);
-  border-radius: 3px;
-  padding: 1px 4px;
+}
+.tt-plays {
+  position: absolute;
+  left: 5px;
+  bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
 }
 .phone-note {
   font-size: var(--t-sm);
@@ -1158,7 +1168,7 @@ textarea.input {
   max-width: 52ch;
 }
 
-/* ---------- admin: coins and Instagram access ---------- */
+/* ---------- admin: coins and TikTok access ---------- */
 .page.admin {
   max-width: 1080px;
 }
@@ -1208,7 +1218,7 @@ textarea.input {
   object-fit: cover;
 }
 .admin-coin-main,
-.admin-coin-ig {
+.admin-coin-tt {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1245,20 +1255,20 @@ textarea.input {
 .admin-wallet:hover {
   color: var(--ink);
 }
-.ig-state {
+.tt-state {
   font-size: var(--t-sm);
   color: var(--ink-soft);
 }
-.ig-state-pending {
+.tt-state-pending {
   color: var(--violet-deep);
   font-weight: 600;
 }
-.ig-state-connected {
+.tt-state-connected {
   color: var(--live);
   font-weight: 600;
 }
-.ig-state-expired,
-.ig-state-disconnected {
+.tt-state-expired,
+.tt-state-disconnected {
   color: var(--warn);
 }
 .admin-coin-actions {
@@ -1274,7 +1284,7 @@ textarea.input {
   .admin-coin {
     grid-template-columns: 44px minmax(0, 1fr);
   }
-  .admin-coin-ig,
+  .admin-coin-tt,
   .admin-coin-actions {
     grid-column: 2;
     justify-content: flex-start;

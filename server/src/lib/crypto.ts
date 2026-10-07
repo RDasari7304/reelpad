@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /**
- * AES-256-GCM envelope for secrets at rest (agent wallet keys, mint keys, Instagram tokens).
+ * AES-256-GCM envelope for secrets at rest (agent wallet keys, mint keys, TikTok tokens).
  * Format: v1:<iv b64>:<tag b64>:<ciphertext b64>
  */
 const VERSION = "v1";

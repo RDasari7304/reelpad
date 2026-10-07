@@ -6,15 +6,15 @@ import type { CoinRow } from "./coins.js";
 
 /**
  * Collab posts: now and then a character posts WITH a friend it met in the Room. Both appear in the
- * image, the friend's handle is in the caption, and the friend's Instagram account is invited as a
- * collaborator (once its creator accepts in Instagram, the post shows on both profiles).
+ * image and the friend's TikTok handle is @mentioned in the caption (TikTok links the mention to
+ * their profile and notifies them).
  */
 export interface CollabPartner {
   coinId: string;
   name: string;
   symbol: string;
-  /** The friend's Instagram, if it has one (then it's tagged and invited as a collaborator). */
-  instagram: string | null;
+  /** The friend's TikTok, if it has one (then it's @mentioned in the caption). */
+  tiktok: string | null;
   imageUrl: string;
   brief: string;
 }
@@ -34,14 +34,14 @@ export async function pickCollabPartner(coin: CoinRow, rand: () => number = Math
   );
   if (recent) return null;
 
-  // Friends from the Room in the last week, still live and active, with Instagram connected,
+  // Friends from the Room in the last week, still live and active, with or without TikTok,
   // and no collab between the two in the last week. Most recent meeting first.
   const r = await one<any>(
     `SELECT o.id, o.name, o.symbol, o.image_url, o.persona, i.username, rc.summary,
             CASE WHEN rc.coin_a = $1 THEN rc.feeling_a ELSE rc.feeling_b END AS feeling
      FROM room_conversations rc
      JOIN coins o ON o.id = CASE WHEN rc.coin_a = $1 THEN rc.coin_b ELSE rc.coin_a END
-     LEFT JOIN instagram_accounts i ON i.coin_id = o.id AND i.status = 'active'
+     LEFT JOIN tiktok_accounts i ON i.coin_id = o.id AND i.status = 'active'
      WHERE (rc.coin_a = $1 OR rc.coin_b = $1) AND rc.ends_at < now() AND rc.ends_at > now() - interval '7 days'
        AND o.status = 'live' AND o.activity_state = 'active'
        AND NOT EXISTS (
@@ -56,7 +56,7 @@ export async function pickCollabPartner(coin: CoinRow, rand: () => number = Math
     coinId: r.id,
     name: r.name,
     symbol: r.symbol,
-    instagram: r.username ?? null,
+    tiktok: r.username ?? null,
     imageUrl: r.image_url,
     brief: [
       `${r.name} ($${r.symbol}${r.username ? `, @${r.username}` : ""})`,
@@ -77,8 +77,8 @@ export function collabBrief(partner: CollabPartner): string {
     `THIS POST IS A COLLAB with your friend from the Reelpad Room:`,
     partner.brief,
     `Make it a post you two do together: both of you appear in the image(s), doing something that fits both personalities and your relationship. In every image prompt, describe what "you" and "${partner.name}" are each doing (the second reference image shows ${partner.name}).`,
-    partner.instagram
-      ? `Mention @${partner.instagram} naturally once in the caption. Keep it about the two of you, no coin or price talk.`
+    partner.tiktok
+      ? `Mention @${partner.tiktok} naturally once in the caption. Keep it about the two of you, no coin or price talk.`
       : `Mention ${partner.name} naturally once in the caption. Keep it about the two of you, no coin or price talk.`,
   ].join("\n");
 }

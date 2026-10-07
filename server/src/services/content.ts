@@ -14,9 +14,9 @@ import { structured } from "./ai/claude.js";
 import { generateImage, generateVideo, reelSeconds, reelShots, reelsHaveAudio } from "./ai/fal.js";
 import { reviewImage, reviewShot } from "./ai/review.js";
 import { editReel, frameStrip, mergeOnFal } from "./video.js";
-import { getCoin, getInstagram, markInstagramExpired, type CoinRow } from "./coins.js";
-import { containerStatus, InstagramError, publish } from "./instagram.js";
-import { rehostImageForInstagram, rehostVideo } from "./media.js";
+import { getCoin, getTikTok, markTikTokExpired, type CoinRow } from "./coins.js";
+import { publish, publishStatus, postUrl, TikTokError } from "./tiktok.js";
+import { rehostImage, rehostVideo } from "./media.js";
 import { getKillSwitch } from "./settings.js";
 import { commentMemories } from "./comments.js";
 import { markMilestonePosted, takePendingMilestone } from "./milestones.js";
@@ -48,8 +48,8 @@ interface PostPlan {
   next_thread: string;
   /** Chosen by pickVariety and stored so later posts can avoid repeating it. */
   variety?: Variety;
-  /** Collab posts: the friend featured and invited as an Instagram collaborator. */
-  collab?: { coinId: string; name: string; symbol: string; instagram: string | null; imageUrl: string };
+  /** Collab posts: the friend featured and @mentioned on TikTok. */
+  collab?: { coinId: string; name: string; symbol: string; tiktok: string | null; imageUrl: string };
   /** Story posts: one sentence on what happened in the story in this post. */
   episode_recap?: string;
   /** Story posts: true if this post wrapped up the current episode. */
@@ -60,7 +60,7 @@ const PLAN_SCHEMA = {
   type: "object",
   properties: {
     concept: { type: "string", description: "One sentence: the idea of this post." },
-    caption: { type: "string", description: "The Instagram caption in the character's voice, without hashtags. Max ~600 characters." },
+    caption: { type: "string", description: "The TikTok caption in the character's voice, without hashtags. Max ~600 characters." },
     hashtags: { type: "array", items: { type: "string" }, description: "Up to 5 relevant hashtags without the # sign." },
     image_prompts: {
       type: "array",
@@ -70,22 +70,22 @@ const PLAN_SCHEMA = {
     },
     video_prompt: {
       type: "string",
-      description: "For reels: the motion/camera direction for the clip. For other formats, an empty string.",
+      description: "For videos (format reel): the motion/camera direction for the clip. For other formats, an empty string.",
     },
     spoken_line: {
       type: "string",
       description:
-        "For reels: the exact words you say out loud to the camera, in English, in your voice. Short enough to say in the clip. No stage directions, emoji or hashtags. For other formats, an empty string.",
+        "For videos (format reel): the exact words you say out loud to the camera, in English, in your voice. Short enough to say in the clip. No stage directions, emoji or hashtags. For other formats, an empty string.",
     },
     sound: {
       type: "string",
       description:
-        "For reels: the sound effects and ambience heard in the clip (e.g. 'rain on a tin roof, distant traffic'). No music with lyrics. For other formats, an empty string.",
+        "For videos (format reel): the sound effects and ambience heard in the clip (e.g. 'rain on a tin roof, distant traffic'). No music with lyrics. For other formats, an empty string.",
     },
     shots: {
       type: "array",
       description:
-        "For reels: the shots, in order (see the format instructions for how many). For other formats, an empty array.",
+        "For videos (format reel): the shots, in order (see the format instructions for how many). For other formats, an empty array.",
       items: {
         type: "object",
         properties: {
@@ -133,21 +133,21 @@ const PLAN_SCHEMA = {
 function formatInstructions(format: Format, look: ReelLook = "film") {
   switch (format) {
     case "image":
-      return "Format: single image post. Provide exactly 1 image prompt.";
+      return "Format: single-photo TikTok post (photo mode). Provide exactly 1 image prompt.";
     case "carousel":
-      return "Format: carousel. Provide 3 to 5 image prompts that tell a short visual story in order.";
+      return "Format: TikTok photo carousel (swipeable photo mode). Provide 3 to 5 image prompts that tell a short visual story in order.";
     case "reel": {
       const secs = reelSeconds();
       const n = reelShots();
       const audio = reelsHaveAudio();
       const roles = shotRoles(n);
       const talk = audio
-        ? `The Reel has sound and you talk in it, straight to the camera, in spoken English, natural and in character (at most ${maxSpokenWords(secs)} words per shot). Your lines should flow as one continuous moment across the shots, not separate intros, and add something the caption doesn't. A shot can have no line (leave spoken_line empty) when the action carries it, but at least one shot has you talking. Give each shot a sound line for ambience and sound effects.`
-        : "The Reel is silent: leave every spoken_line and sound empty.";
+        ? `The video has sound and you talk in it, straight to the camera, in spoken English, natural and in character (at most ${maxSpokenWords(secs)} words per shot). Your lines should flow as one continuous moment across the shots, not separate intros, and add something the caption doesn't. A shot can have no line (leave spoken_line empty) when the action carries it, but at least one shot has you talking. Give each shot a sound line for ambience and sound effects.`
+        : "The video is silent: leave every spoken_line and sound empty.";
       return [
         n > 1
-          ? `Format: vertical Reel, edited from ${n} shots of ${secs} seconds each (about ${n * secs} seconds). Direct it like a short, punchy skit, not a slideshow:`
-          : `Format: a ${secs}-second vertical Reel in one shot:`,
+          ? `Format: vertical 9:16 TikTok video, edited from ${n} shots of ${secs} seconds each (about ${n * secs} seconds). Direct it like a short, punchy skit, not a slideshow:`
+          : `Format: a ${secs}-second vertical 9:16 TikTok video in one shot:`,
         ...roles.map((r, i) => `- Shot ${i + 1}: ${r}.`),
         n > 1
           ? "All shots happen in the same place and moment (continuity: same setting, outfit, props, lighting and time of day), but each has a DIFFERENT camera setup (e.g. wide establishing, then medium, then close-up; or a POV or over-the-shoulder angle) so the edit feels alive. Each shot needs real movement: something happens, not just standing and talking."
@@ -180,7 +180,7 @@ function lifeFacts(coin: CoinRow, published: number, burns: number, burned: numb
   return [
     `It's ${day} ${part} (UTC).`,
     ageDays === 0 ? "You came to life today." : `You've existed for ${ageDays} day${ageDays === 1 ? "" : "s"}.`,
-    `You've posted ${published} time${published === 1 ? "" : "s"} on Instagram so far.`,
+    `You've posted ${published} time${published === 1 ? "" : "s"} on TikTok so far.`,
     lastPostAt ? `Your last post was ${timeAgo(lastPostAt)}.` : "",
     burns > 0 ? `Your treasury has burned ${Math.round(burned).toLocaleString("en-US")} $${coin.symbol} across ${burns} burn${burns === 1 ? "" : "s"}.` : "",
   ]
@@ -302,7 +302,7 @@ async function planWithClaude(
   let feedback = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const user = [
-      `Plan your next Instagram post.`,
+      `Plan your next TikTok post.`,
       formatInstructions(format, coin.content_settings.reelLook ?? "film"),
       note ? `Reason for this post: ${note}` : "",
       inner,
@@ -320,7 +320,7 @@ async function planWithClaude(
       system,
       user,
       toolName: "plan_post",
-      toolDescription: "the plan for one Instagram post, as JSON matching the schema.",
+      toolDescription: "the plan for one TikTok post, as JSON matching the schema.",
       schema: PLAN_SCHEMA,
     });
     plan.caption = String(plan.caption ?? "").trim();
@@ -353,12 +353,12 @@ async function planWithClaude(
         coinId: opts.collab.coinId,
         name: opts.collab.name,
         symbol: opts.collab.symbol,
-        instagram: opts.collab.instagram,
+        tiktok: opts.collab.tiktok,
         imageUrl: opts.collab.imageUrl,
       };
       // Make sure the friend is tagged even if the caption forgot.
-      if (opts.collab.instagram && !plan.caption.toLowerCase().includes(`@${opts.collab.instagram.toLowerCase()}`)) {
-        plan.caption += ` (with @${opts.collab.instagram})`;
+      if (opts.collab.tiktok && !plan.caption.toLowerCase().includes(`@${opts.collab.tiktok.toLowerCase()}`)) {
+        plan.caption += ` (with @${opts.collab.tiktok})`;
       }
     }
     if (violations.length === 0 && plan.caption && plan.image_prompts.length) return { plan, arc: opts.story ? arc : null };
@@ -397,9 +397,9 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
   if (kill.content) return logger.info({ coinId }, "content kill switch on; skipping plan");
   const coin = await getCoin(coinId);
   if (!coin || coin.status !== "live" || coin.content_paused) return;
-  // Every influencer posts on Reelpad; Instagram, when connected, gets the same posts too.
-  const ig = await getInstagram(coinId);
-  const onInstagram = !!ig && ig.status === "active";
+  // Every influencer posts on Reelpad; TikTok, when connected, gets the same posts too.
+  const tt = await getTikTok(coinId).catch(() => null);
+  const onTikTok = !!tt && tt.status === "active";
 
   const recent = await query<{ format: Format }>(
     `SELECT format FROM posts WHERE coin_id = $1 AND status <> 'planned' ORDER BY created_at DESC LIMIT 3`,
@@ -410,11 +410,11 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
      AND created_at > now() - interval '7 days'`,
     [coinId],
   );
-  // Coins whose trading has dried up still post a little, but no Reels (the most expensive format).
+  // Coins whose trading has dried up still post a little, but no videos (the most expensive format).
   const reelsCap = reelsAllowed(coin.activity_state ?? "active")
-    ? Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK, onInstagram ? Infinity : config.PAD_REELS_PER_WEEK)
+    ? Math.min(coin.content_settings.reelsPerWeek, config.CONTENT_MAX_REELS_PER_WEEK, onTikTok ? Infinity : config.PAD_REELS_PER_WEEK)
     : 0;
-  // The very first post (queued the moment Instagram connects) leads with a Reel when Reels are on.
+  // The very first post (queued the moment TikTok connects) leads with a video when videos are on.
   const isFirst = recent.rows.length === 0;
   const format = isFirst
     ? firstPostFormat(coin.content_settings.formats, reelsCap)
@@ -425,7 +425,7 @@ export async function planPost(coinId: string, trigger: string, note?: string) {
         recent: recent.rows.map((r) => r.format),
       });
   if (isFirst && !note) {
-    note = "This is your very first post. Introduce yourself to Instagram in character: who you are and what your world is like.";
+    note = "This is your very first post. Introduce yourself to TikTok in character: who you are and what your world is like.";
   }
 
   // Show the loading card straight away. A retry of this job reuses the same card instead of adding another.
@@ -501,7 +501,7 @@ async function drawChecked(postId: string, prompt: string, refs: string[], aspec
 /**
  * Makes a Reel: draws each shot's opening frame (later shots also see the first frame, for continuity),
  * films all shots at once, has Claude check frames from every shot (re-filming the worst one once if it's
- * broken or off-character), then edits the shots together into one Instagram-ready video.
+ * broken or off-character), then edits the shots together into one TikTok-ready video.
  */
 async function makeReel(
   postId: string,
@@ -528,7 +528,7 @@ async function makeReel(
   }
 
   // 2. Film every shot in parallel; progress follows the slowest.
-  const stage = audio ? (n > 1 ? `Filming ${n} shots: voice, lip sync and sound` : "Filming the Reel: voice, lip sync and sound") : "Animating the Reel";
+  const stage = audio ? (n > 1 ? `Filming ${n} shots: voice, lip sync and sound` : "Filming the video: voice, lip sync and sound") : "Animating the video";
   await setProgress(postId, 35, stage);
   const fractions = shots.map(() => 0);
   const promptFor = (s: ReelShot, fix = "") =>
@@ -543,7 +543,7 @@ async function makeReel(
   // 3. Quality check: frames from each shot against the character's reference. The worst failing
   // shot is filmed once more with the reviewer's note (at most one re-shoot per Reel, to cap cost).
   if (config.REEL_CHECK && config.QUALITY_CHECK) {
-    await setProgress(postId, 83, n > 1 ? "Reviewing the shots" : "Reviewing the Reel");
+    await setProgress(postId, 83, n > 1 ? "Reviewing the shots" : "Reviewing the video");
     const reviews = await Promise.all(
       clips.map(async (url, i) => {
         if (!(await reserveSpend(config.COST_CHECK_USD))) return null;
@@ -556,7 +556,7 @@ async function makeReel(
     const failed = reviews.find((r) => r && !r.pass);
     if (failed && (await reserveSpend(config.COST_REEL_USD))) {
       logger.info({ postId, shot: failed.i + 1, fix: failed.fix }, "reel shot failed the check; re-filming");
-      await setProgress(postId, 84, n > 1 ? `Re-filming shot ${failed.i + 1}` : "Re-filming the Reel");
+      await setProgress(postId, 84, n > 1 ? `Re-filming shot ${failed.i + 1}` : "Re-filming the video");
       await query(`UPDATE posts SET cost_usd = cost_usd + $2 WHERE id = $1`, [postId, config.COST_REEL_USD]);
       try {
         clips[failed.i] = await film(failed.i, `Important: ${failed.fix || "keep the character exactly like the reference."}`);
@@ -582,7 +582,7 @@ async function makeReel(
     if (!video) logger.warn({ postId }, "couldn't edit the shots together; posting the first shot");
   }
   video ??= await rehostVideo(clips[0]!, coin.id);
-  const cover = await rehostImageForInstagram(frames[0]!, coin.id, "9:16");
+  const cover = await rehostImage(frames[0]!, coin.id, "9:16");
   return [{ type: "video", ...video }, { type: "image", role: "cover", ...cover }];
 }
 
@@ -647,7 +647,7 @@ export async function generatePost(postId: string) {
       const label = prompts.length > 1 ? `Drawing image ${i + 1} of ${prompts.length}` : "Drawing the image";
       await setProgress(postId, 22 + (i / prompts.length) * 63, label);
       const remote = await drawChecked(postId, fullPrompt(p, i), refs, "1:1", `${label}: quality check`);
-      media.push({ type: "image", ...(await rehostImageForInstagram(remote, coin.id, "1:1")) });
+      media.push({ type: "image", ...(await rehostImage(remote, coin.id, "1:1")) });
     }
   }
   } catch (e) {
@@ -671,7 +671,7 @@ export async function generatePost(postId: string) {
   if (next === "ready") await enqueue("content.publish", { postId }, { dedupeKey: `pub:${postId}`, maxAttempts: 4 });
 }
 
-/** Job: publish a ready post to Instagram. */
+/** Job: publish a ready post to TikTok. */
 export async function publishPost(postId: string) {
   const kill = await getKillSwitch();
   if (kill.content) throw new Error("Content kill switch is on");
@@ -682,13 +682,12 @@ export async function publishPost(postId: string) {
     caption: string;
     media: any[];
     status: string;
-    ig_container_id: string | null;
-    plan: PostPlan | null;
-  }>(`SELECT id, coin_id, format, caption, media, status, ig_container_id, plan FROM posts WHERE id = $1`, [postId]);
+    tiktok_publish_id: string | null;
+  }>(`SELECT id, coin_id, format, caption, media, status, tiktok_publish_id FROM posts WHERE id = $1`, [postId]);
   if (!post || !["ready", "publishing"].includes(post.status)) return;
-  const ig = await getInstagram(post.coin_id);
-  if (!ig || ig.status !== "active") {
-    // Lives on Reelpad only (no Instagram connected): the post goes live on the site.
+  const tt = await getTikTok(post.coin_id);
+  if (!tt || tt.status !== "active") {
+    // Lives on Reelpad only (no TikTok connected): the post goes live on the site.
     await query(
       `UPDATE posts SET status = 'published', published_at = COALESCE(published_at, now()), error = NULL, progress = 100, stage = NULL WHERE id = $1`,
       [postId],
@@ -696,47 +695,46 @@ export async function publishPost(postId: string) {
     return;
   }
 
-  // Retry safety: if a previous attempt already published this container, don't post it twice.
-  if (post.ig_container_id && (await containerStatus(post.ig_container_id, ig.token)) === "PUBLISHED") {
-    await query(
-      `UPDATE posts SET status = 'published', progress = 100, stage = NULL, published_at = COALESCE(published_at, now()) WHERE id = $1`,
-      [postId],
-    );
-    return;
+  // Retry safety: if a previous attempt already handed this post to TikTok, follow that one instead of posting it twice.
+  let resumeId: string | null = null;
+  if (post.tiktok_publish_id) {
+    const s = await publishStatus(post.tiktok_publish_id, tt.token);
+    if (s?.status === "PUBLISH_COMPLETE") {
+      const id = s.publicaly_available_post_id?.[0];
+      await query(
+        `UPDATE posts SET status = 'published', progress = 100, stage = NULL, published_at = COALESCE(published_at, now()),
+                tiktok_post_id = COALESCE(tiktok_post_id, $2), permalink = COALESCE(permalink, $3) WHERE id = $1`,
+        [postId, id != null ? String(id) : null, id != null ? postUrl(tt.username, String(id), post.format === "reel" ? "video" : "photo") : null],
+      );
+      return;
+    }
+    if (s && s.status !== "FAILED") resumeId = post.tiktok_publish_id;
   }
 
-  await query(`UPDATE posts SET status = 'publishing', progress = GREATEST(progress, 92), stage = 'Posting to Instagram' WHERE id = $1`, [postId]);
+  await query(`UPDATE posts SET status = 'publishing', progress = GREATEST(progress, 92), stage = 'Posting to TikTok' WHERE id = $1`, [postId]);
   const mediaUrls =
     post.format === "reel"
-      ? [post.media.find((m) => m.type === "video")?.url, post.media.find((m) => m.role === "cover")?.url].filter(Boolean)
+      ? [post.media.find((m) => m.type === "video")?.url].filter(Boolean)
       : post.media.filter((m) => m.type === "image").map((m) => m.url);
 
   try {
     const result = await publish(
-      {
-        igUserId: ig.igUserId,
-        token: ig.token,
-        format: post.format,
-        caption: post.caption,
-        mediaUrls,
-        // Collab posts invite the partner's account, so the post can appear on both profiles.
-        collaborators: post.plan?.collab?.instagram ? [post.plan.collab.instagram] : [],
-      },
-      (containerId) =>
+      { token: tt.token, username: tt.username, format: post.format, caption: post.caption, mediaUrls, publishId: resumeId },
+      (publishId) =>
         query(
-          `UPDATE posts SET ig_container_id = $2, progress = GREATEST(progress, 95), stage = $3 WHERE id = $1`,
-          [postId, containerId, post.format === "reel" ? "Instagram is processing the video" : "Instagram is processing the post"],
+          `UPDATE posts SET tiktok_publish_id = $2, progress = GREATEST(progress, 95), stage = $3 WHERE id = $1`,
+          [postId, publishId, post.format === "reel" ? "TikTok is processing the video" : "TikTok is processing the post"],
         ).then(() => {}),
     );
     await query(
-      `UPDATE posts SET status = 'published', ig_media_id = $2, permalink = $3, published_at = now(), error = NULL,
+      `UPDATE posts SET status = 'published', tiktok_publish_id = $2, tiktok_post_id = $3, permalink = $4, published_at = now(), error = NULL,
               progress = 100, stage = NULL WHERE id = $1`,
-      [postId, result.mediaId, result.permalink],
+      [postId, result.publishId, result.postId, result.permalink],
     );
   } catch (e) {
-    if (e instanceof InstagramError && e.isAuth) {
-      await markInstagramExpired(post.coin_id);
-      await query(`UPDATE posts SET status = 'failed', error = $2 WHERE id = $1`, [postId, "Instagram connection expired — reconnect"]);
+    if (e instanceof TikTokError && e.isAuth) {
+      await markTikTokExpired(post.coin_id);
+      await query(`UPDATE posts SET status = 'failed', error = $2 WHERE id = $1`, [postId, "TikTok connection expired — reconnect"]);
       throw new PermanentError(e.message);
     }
     await query(`UPDATE posts SET status = 'ready', error = $2 WHERE id = $1`, [postId, (e as Error).message.slice(0, 500)]);
@@ -786,18 +784,18 @@ export async function resumeBudgetStalled() {
 /** Called every minute: enqueue plans for coins whose next post is due. */
 export async function scheduleDuePosts() {
   // Dormant coins (no real trading for days) don't post at all; they're revived when trading returns.
-  // Every live influencer posts on Reelpad, with or without Instagram (Instagram ones post more often).
+  // Every live influencer posts on Reelpad, with or without TikTok (TikTok ones post more often).
   const due = await query<{
     id: string;
     content_settings: { postsPerDay: number };
     activity_state: "active" | "cooling" | "dormant";
-    on_ig: boolean;
+    on_tt: boolean;
     has_posts: boolean;
   }>(
-    `SELECT c.id, c.content_settings, c.activity_state, (i.coin_id IS NOT NULL) AS on_ig,
+    `SELECT c.id, c.content_settings, c.activity_state, (t.coin_id IS NOT NULL) AS on_tt,
             EXISTS (SELECT 1 FROM posts p WHERE p.coin_id = c.id AND p.status <> 'rejected') AS has_posts
      FROM coins c
-     LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+     LEFT JOIN tiktok_accounts t ON t.coin_id = c.id AND t.status = 'active'
      WHERE c.status = 'live' AND NOT c.content_paused AND c.activity_state <> 'dormant'
        AND (c.next_post_at IS NULL OR c.next_post_at <= now())
      LIMIT 50`,
@@ -807,10 +805,10 @@ export async function scheduleDuePosts() {
       config.CONTENT_MAX_POSTS_PER_DAY,
       Math.max(config.CONTENT_MIN_POSTS_PER_DAY, c.content_settings.postsPerDay ?? config.CONTENT_MIN_POSTS_PER_DAY),
     );
-    const perDay = postsPerDayFor(c.activity_state ?? "active", c.on_ig ? setting : Math.min(setting, config.PAD_POSTS_PER_DAY));
+    const perDay = postsPerDayFor(c.activity_state ?? "active", c.on_tt ? setting : Math.min(setting, config.PAD_POSTS_PER_DAY));
     if (perDay <= 0) continue;
     await query(`UPDATE coins SET next_post_at = $2 WHERE id = $1`, [c.id, nextPostAt(new Date(), perDay)]);
-    // A brand-new influencer's first post introduces it (and leads with a Reel when Reels are on).
+    // A brand-new influencer's first post introduces it (and leads with a video when videos are on).
     await enqueue("content.plan", { coinId: c.id, trigger: c.has_posts ? "schedule" : "first" }, { dedupeKey: `plan:${c.id}`, maxAttempts: 3 });
   }
 }

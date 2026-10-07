@@ -31,7 +31,7 @@ export interface TokenMetadata {
   website?: string;
   twitter?: string;
   telegram?: string;
-  instagram?: string;
+  tiktok?: string;
 }
 
 export async function pinMetadata(meta: TokenMetadata): Promise<string> {

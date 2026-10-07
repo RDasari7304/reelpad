@@ -2,8 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
 import { query } from "../db/pool.js";
-import { instagramUsernameSchema } from "../domain/schemas.js";
-import { upsertAccessRequest } from "../services/instagramAccess.js";
+import { tiktokUsernameSchema } from "../domain/schemas.js";
+import { upsertAccessRequest } from "../services/tiktokAccess.js";
 import { getKillSwitch, setKillSwitch } from "../services/settings.js";
 import { todaySpend } from "../services/spend.js";
 import { requireAdmin } from "./auth.js";
@@ -28,7 +28,7 @@ adminRouter.get(
       aiSpendToday: await todaySpend(),
       aiBudget: config.DAILY_AI_BUDGET_USD,
       treasuryDryRun: config.TREASURY_DRY_RUN,
-      igAccessMode: config.IG_ACCESS_MODE,
+      tiktokAccessMode: config.TIKTOK_ACCESS_MODE,
       coins: counts.rows,
       posts24h: posts.rows,
       failedJobs24h: failedJobs.rows,
@@ -49,17 +49,17 @@ adminRouter.post(
 
 type AccessState = "none" | "pending" | "invited" | "connected" | "expired" | "disconnected";
 
-function accessState(r: { req_status: string | null; ig_status: string | null }): AccessState {
-  if (r.ig_status === "active") return "connected";
-  if (r.ig_status === "expired") return "expired";
-  if (r.ig_status === "revoked") return "disconnected";
+function accessState(r: { req_status: string | null; tt_status: string | null }): AccessState {
+  if (r.tt_status === "active") return "connected";
+  if (r.tt_status === "expired") return "expired";
+  if (r.tt_status === "revoked") return "disconnected";
   if (r.req_status === "pending" || r.req_status === "invited") return r.req_status;
   return "none";
 }
 
 /**
- * Every coin created so far, with its creator and where it is in the Instagram access flow.
- * Used to add creators as Instagram Testers by hand while the Meta app is unapproved.
+ * Every coin created so far, with its creator and where it is in the TikTok access flow.
+ * Used to add creators as sandbox target users by hand while the TikTok app is unaudited.
  */
 adminRouter.get(
   "/coins",
@@ -69,23 +69,23 @@ adminRouter.get(
       query(
         `SELECT c.id, c.name, c.symbol, c.image_url, c.mint, c.creator_wallet, c.status, c.created_at, c.launched_at,
                 r.username AS req_username, r.status AS req_status, r.requested_at, r.invited_at,
-                i.username AS ig_username, i.status AS ig_status
+                i.username AS tt_username, i.status AS tt_status
          FROM coins c
-         LEFT JOIN instagram_access_requests r ON r.coin_id = c.id
-         LEFT JOIN instagram_accounts i ON i.coin_id = c.id
+         LEFT JOIN tiktok_access_requests r ON r.coin_id = c.id
+         LEFT JOIN tiktok_accounts i ON i.coin_id = c.id
          WHERE ($1::text IS NULL OR c.name ILIKE $1 OR c.symbol ILIKE $1 OR c.creator_wallet ILIKE $1
                 OR r.username ILIKE $1 OR i.username ILIKE $1 OR c.mint ILIKE $1)
          ORDER BY c.created_at DESC
          LIMIT 500`,
         [q],
       ),
-      query<{ n: number }>(`SELECT count(*)::int AS n FROM instagram_access_requests WHERE status IN ('invited','connected')`),
+      query<{ n: number }>(`SELECT count(*)::int AS n FROM tiktok_access_requests WHERE status IN ('invited','connected')`),
     ]);
     res.json({
-      accessMode: config.IG_ACCESS_MODE,
-      metaRolesUrl: config.META_APP_ID
-        ? `https://developers.facebook.com/apps/${encodeURIComponent(config.META_APP_ID)}/roles/roles/`
-        : "https://developers.facebook.com/apps/",
+      accessMode: config.TIKTOK_ACCESS_MODE,
+      sandboxUrl: config.TIKTOK_APP_ID
+        ? `https://developers.tiktok.com/app/${encodeURIComponent(config.TIKTOK_APP_ID)}/sandbox`
+        : "https://developers.tiktok.com/apps/",
       testersUsed: testers.rows[0]?.n ?? 0,
       coins: rows.rows.map((r: any) => ({
         id: r.id,
@@ -99,7 +99,7 @@ adminRouter.get(
         launchedAt: r.launched_at,
         access: {
           state: accessState(r),
-          username: r.ig_status === "active" ? r.ig_username : (r.req_username ?? r.ig_username ?? null),
+          username: r.tt_status === "active" ? r.tt_username : (r.req_username ?? r.tt_username ?? null),
           requestedAt: r.requested_at,
           invitedAt: r.invited_at,
         },
@@ -108,25 +108,25 @@ adminRouter.get(
   }),
 );
 
-/** Admin sets or corrects a coin's Instagram username (e.g. the creator sent it by DM). */
+/** Admin sets or corrects a coin's TikTok username (e.g. the creator sent it by DM). */
 adminRouter.put(
-  "/coins/:id/instagram-access",
+  "/coins/:id/tiktok-access",
   asyncHandler(async (req, res) => {
     const coinId = z.string().uuid().parse(req.params.id);
-    const { username } = z.object({ username: instagramUsernameSchema }).parse(req.body);
+    const { username } = z.object({ username: tiktokUsernameSchema }).parse(req.body);
     const exists = await query(`SELECT 1 FROM coins WHERE id = $1`, [coinId]);
     if (!exists.rowCount) throw new HttpError(404, "Coin not found");
-    res.json({ instagramAccess: await upsertAccessRequest(coinId, username) });
+    res.json({ tiktokAccess: await upsertAccessRequest(coinId, username) });
   }),
 );
 
 adminRouter.post(
-  "/instagram-requests/:coinId/invited",
+  "/tiktok-requests/:coinId/invited",
   asyncHandler(async (req, res) => {
     const coinId = z.string().uuid().parse(req.params.coinId);
     const { invited } = z.object({ invited: z.boolean().default(true) }).parse(req.body ?? {});
     await query(
-      `UPDATE instagram_access_requests SET status = $2, invited_at = CASE WHEN $2 = 'invited' THEN now() ELSE NULL END
+      `UPDATE tiktok_access_requests SET status = $2, invited_at = CASE WHEN $2 = 'invited' THEN now() ELSE NULL END
        WHERE coin_id = $1 AND status <> 'connected'`,
       [coinId, invited ? "invited" : "pending"],
     );

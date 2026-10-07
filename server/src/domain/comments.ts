@@ -1,7 +1,7 @@
 /**
  * Rules for the influencer's comment replies. Pure and unit-tested; the service layer does the I/O.
  *
- * Instagram's API can read comments and post replies, but it has no way to like a comment.
+ * TikTok's comment API can read comments and post replies, but it has no way to like a comment.
  * The influencer's "like" is a short reaction reply (a single emoji), which is what people do anyway.
  */
 import { captionViolations, limitEmojis } from "./caption.js";
@@ -69,7 +69,7 @@ export function humanDelayMinutes(commentId: string): number {
   return 2 + (h % 11);
 }
 
-/** Instagram threads are one level deep: a reply to a reply is posted under the top-level comment. */
+/** TikTok threads are one level deep: a reply to a reply is posted under the top-level comment. */
 export const replyTargetId = (c: Pick<StoredComment, "id" | "parentId">) => c.parentId ?? c.id;
 
 const LINK = /\bhttps?:\/\/\S+|\bwww\.\S+|\b[\w-]+\.(com|io|xyz|net|org|app|fun|gg|me|co|link|site|online|top|vip)\b\S*/gi;
@@ -115,7 +115,7 @@ export function replyViolations(text: string): string[] {
 }
 
 /**
- * Tidies a reply for Instagram: one line-ish, no hashtags or links, at most one emoji, no tagging of
+ * Tidies a reply for TikTok: one line-ish, no hashtags or links, at most one emoji, no tagging of
  * anyone except the person being answered, and the @mention up front when answering inside a thread.
  */
 export function cleanReply(raw: string, opts: { username: string; mention: boolean }): string {

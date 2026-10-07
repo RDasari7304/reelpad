@@ -71,14 +71,14 @@ export interface Coin {
   treasuryPaused: boolean;
   nextPostAt: string | null;
   launchedAt: string | null;
-  instagram?: {
+  tiktok?: {
     username: string;
     status?: string;
     picture?: string | null;
     commentsEnabled?: boolean;
     commentsError?: string | null;
   } | null;
-  instagramAccess?: InstagramAccess | null;
+  tiktokAccess?: TikTokAccess | null;
   lastImage?: string | null;
   activity?: "active" | "cooling" | "dormant";
   activityChangedAt?: string | null;
@@ -86,17 +86,17 @@ export interface Coin {
   isOwner?: boolean;
 }
 
-export interface InstagramAccess {
+export interface TikTokAccess {
   username: string;
   status: "pending" | "invited" | "connected";
   requestedAt: string;
   invitedAt: string | null;
 }
 
-/** Mirrors server/src/domain/instagram.ts */
-export function normalizeInstagramUsername(input: string): string | null {
+/** Mirrors server/src/domain/tiktok.ts */
+export function normalizeTikTokUsername(input: string): string | null {
   const u = input.trim().replace(/^@/, "").toLowerCase();
-  return /^[a-z0-9._]{1,30}$/.test(u) ? u : null;
+  return /^[a-z0-9._]{2,24}$/.test(u) && !u.endsWith(".") ? u : null;
 }
 
 export interface Post {
@@ -123,7 +123,7 @@ export interface FeedPost {
   media: Array<{ type: "image" | "video"; url: string; role?: string }>;
   permalink: string | null;
   publishedAt: string;
-  coin: { id: string; name: string; symbol: string; mint: string | null; imageUrl: string; instagram: string | null };
+  coin: { id: string; name: string; symbol: string; mint: string | null; imageUrl: string; tiktok: string | null };
   collab?: { id: string; name: string; symbol: string; mint: string | null } | null;
 }
 
@@ -234,7 +234,8 @@ export interface AppConfig {
   platformFeeSol: number;
   agentGasSol: number;
   treasuryDryRun: boolean;
-  igAccessMode: "testers" | "open";
+  tiktokAccessMode: "testers" | "open";
+  tiktokComments?: boolean;
   limits: { minPostsPerDay: number; maxPostsPerDay: number; maxReelsPerWeek: number; nativeBuybackShare?: number; treasuryMinBuySol: number; treasuryBuyIntervalMin: number };
   reels?: { seconds: number; shots?: number; audio: boolean };
   catalog: {

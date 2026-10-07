@@ -15,7 +15,7 @@ const ago = (iso: string) => {
   return h < 1 ? `${Math.max(1, Math.round(h * 60))} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`;
 };
 
-/** Admin: Instagram accounts waiting to be added as testers in the Meta dashboard. */
+/** Admin: TikTok accounts waiting to be added as sandbox target users in the TikTok developer portal. */
 export function TesterQueue() {
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -23,7 +23,7 @@ export function TesterQueue() {
   const [error, setError] = useState<string | null>(null);
 
   const load = () =>
-    api<{ requests: Request[] }>("/admin/instagram-requests")
+    api<{ requests: Request[] }>("/admin/tiktok-requests")
       .then((r) => setRequests(r.requests))
       .catch((e) => setError(e.message));
   useEffect(() => {
@@ -33,7 +33,7 @@ export function TesterQueue() {
   const mark = async (r: Request, invited: boolean) => {
     setBusy(r.coinId);
     try {
-      await api(`/admin/instagram-requests/${r.coinId}/invited`, { method: "POST", json: { invited } });
+      await api(`/admin/tiktok-requests/${r.coinId}/invited`, { method: "POST", json: { invited } });
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -58,11 +58,11 @@ export function TesterQueue() {
     <div className="tester-queue">
       <p className="sub-hint">
         For each account: in the{" "}
-        <a href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer">
-          Meta developer dashboard
+        <a href="https://developers.tiktok.com/apps/" target="_blank" rel="noreferrer">
+          TikTok developer portal
         </a>
-        , open your app, go to App roles, then Roles, choose Add people, pick Instagram Tester, paste the username and send the
-        invite. Then mark it invited here so the creator sees the next step.
+        , open your app's Sandbox, go to Target users and add the account. Then mark it added here so the creator sees the next
+        step.
       </p>
       {pending.length === 0 && <p className="muted">No accounts waiting.</p>}
       <ul className="queue">
@@ -78,15 +78,15 @@ export function TesterQueue() {
               </small>
             </div>
             <button className="btn btn-small btn-primary" disabled={busy === r.coinId} onClick={() => mark(r, true)}>
-              Mark invited
+              Mark added
             </button>
           </li>
         ))}
       </ul>
       {invited.length > 0 && (
         <>
-          <h3 className="sub">Invited, not connected yet</h3>
-          <p className="sub-hint">The creator still needs to accept the invite on Instagram and log in.</p>
+          <h3 className="sub">Added, not connected yet</h3>
+          <p className="sub-hint">The creator still needs to log in with TikTok.</p>
           <ul className="queue">
             {invited.map((r) => (
               <li key={r.coinId}>

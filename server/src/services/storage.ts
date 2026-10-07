@@ -4,7 +4,7 @@ import { sha256Hex, signRequest, uriEncode } from "../lib/sigv4.js";
 
 /**
  * Public media storage (S3-compatible, e.g. Cloudflare R2 with a public bucket/custom domain).
- * Instagram fetches media by URL, so everything we publish must be reachable at S3_PUBLIC_BASE_URL.
+ * TikTok pulls media by URL, so everything we publish must be reachable at S3_PUBLIC_BASE_URL.
  */
 export async function putObject(key: string, body: Buffer, contentType: string): Promise<string> {
   const base = config.S3_ENDPOINT.replace(/\/$/, "");

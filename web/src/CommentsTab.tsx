@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Coin, type CommentThread, type CommentView, type CommentsResponse } from "./api";
 import { Notice } from "./components";
+import { useSession } from "./session";
 
 function ago(iso: string) {
   const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
@@ -51,7 +52,7 @@ function Thread({ t, coin, owner, onChange }: { t: CommentThread; coin: Coin; ow
   return (
     <article className="cm-thread">
       {t.post.thumb && (
-        <a className="cm-thumb" href={t.post.permalink ?? "#"} target="_blank" rel="noreferrer" title="Open the post on Instagram">
+        <a className="cm-thumb" href={t.post.permalink ?? "#"} target="_blank" rel="noreferrer" title="Open the post on TikTok">
           <img src={t.post.thumb} alt="" loading="lazy" />
         </a>
       )}
@@ -107,8 +108,9 @@ export function CommentsTab({ coin, owner, onSettings }: { coin: Coin; owner: bo
     return () => clearInterval(id);
   }, [load]);
 
-  const ig = coin.instagram;
-  const enabled = !!ig?.commentsEnabled;
+  const { config } = useSession();
+  const tt = coin.tiktok;
+  const enabled = !!tt?.commentsEnabled;
   const repliesOn = coin.contentSettings.commentReplies !== false;
   const check = async () => {
     setChecking(true);
@@ -122,14 +124,17 @@ export function CommentsTab({ coin, owner, onSettings }: { coin: Coin; owner: bo
 
   return (
     <section className="comments-tab">
-      {owner && ig && !enabled && (
+      {owner && tt && !enabled && !config?.tiktokComments && (
+        <Notice>Replying to TikTok comments isn't switched on for this site yet. Your posts keep going out as usual.</Notice>
+      )}
+      {owner && tt && !enabled && config?.tiktokComments && (
         <Notice tone="warn">
-          To let {coin.name} reply to comments, reconnect Instagram once and allow <strong>comment management</strong> when
-          Instagram asks.{" "}
-          <a href={`/api/instagram/connect?coinId=${coin.id}`}>Reconnect Instagram</a>
+          To let {coin.name} reply to comments, reconnect TikTok once and allow <strong>comment management</strong> when
+          TikTok asks.{" "}
+          <a href={`/api/tiktok/connect?coinId=${coin.id}`}>Reconnect TikTok</a>
         </Notice>
       )}
-      {owner && enabled && ig?.commentsError && <Notice tone="error">{ig.commentsError}</Notice>}
+      {owner && enabled && tt?.commentsError && <Notice tone="error">{tt.commentsError}</Notice>}
       {owner && enabled && !repliesOn && (
         <Notice>
           Comment replies are off.{" "}

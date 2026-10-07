@@ -13,7 +13,7 @@ import {
   resumeBudgetStalled,
   scheduleDuePosts,
 } from "../services/content.js";
-import { refreshExpiringTokens, upgradeShortTokens } from "../services/instagramRefresh.js";
+import { refreshExpiringTokens } from "../services/tiktokRefresh.js";
 import { runActivityChecks } from "../services/activity.js";
 import { respondToComments, scheduleCommentSyncs, syncComments } from "../services/comments.js";
 import { converse, scheduleRoom } from "../services/room.js";
@@ -37,7 +37,7 @@ async function handle(job: Job) {
       return publishPost(job.payload.postId);
     case "treasury.run":
       return runTreasury(job.payload.coinId);
-    case "instagram.refresh":
+    case "tiktok.refresh":
       return refreshExpiringTokens();
     case "room.converse":
       return converse();
@@ -111,8 +111,7 @@ async function ticker() {
     await scheduleRoom().catch((e) => logger.warn({ err: (e as Error).message }, "room schedule failed"));
     await scheduleCommentSyncs().catch((e) => logger.warn({ err: (e as Error).message }, "comment schedule failed"));
     if (tick % 5 === 0) await runActivityChecks().catch((e) => logger.warn({ err: (e as Error).message }, "activity check failed"));
-    if (tick % 60 === 0) await refreshExpiringTokens();
-    await upgradeShortTokens().catch((e) => logger.warn({ err: (e as Error).message }, "token upgrade failed"));
+    if (tick % 5 === 0) await refreshExpiringTokens().catch((e) => logger.warn({ err: (e as Error).message }, "token refresh failed"));
     if (tick % 60 === 0) await expireUnpaidShoutouts().catch(() => {});
     if (tick % 1440 === 0) await pruneOldJobs();
   } catch (e) {

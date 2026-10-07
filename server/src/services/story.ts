@@ -41,7 +41,7 @@ const ARC_SCHEMA = {
           title: { type: "string", description: "Episode name, 2 to 6 words." },
           summary: {
             type: "string",
-            description: "What happens in this episode, concretely and visually (it will be shown in 2-3 Instagram posts).",
+            description: "What happens in this episode, concretely and visually (it will be shown in 2-3 TikTok posts).",
           },
         },
         required: ["title", "summary"],
@@ -84,7 +84,7 @@ export async function ensureArc(coin: CoinRow, context: { memories: string[]; li
     const raw = await structured<{ title: string; premise: string; beats: Array<{ title: string; summary: string }> }>({
       system: `${personaBrief(coin, coin.persona)}\n\n${CONTENT_RULES}`,
       user: [
-        `Plan your next storyline: a story you'll live through on Instagram over the next few days, told across many posts.`,
+        `Plan your next storyline: a story you'll live through on TikTok over the next few days, told across many posts.`,
         `Your life right now: ${context.life}`,
         context.memories.length ? `Your recent memories:\n${context.memories.slice(0, 8).map((m) => `- ${m}`).join("\n")}` : "",
         pastText

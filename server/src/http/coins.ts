@@ -9,16 +9,17 @@ import { one, query } from "../db/pool.js";
 import {
   coinDraftSchema,
   contentSettingsSchema,
-  instagramUsernameSchema,
+  tiktokUsernameSchema,
 } from "../domain/schemas.js";
 import { isTimeframe } from "../domain/chart.js";
 import { getChart, nativeSymbol } from "../services/chart.js";
 import { commentStats, commentThreads } from "../services/comments.js";
 import { vote, VoteError } from "../services/polls.js";
 import { storyView } from "../services/story.js";
-import { COMMENTS_SCOPE } from "../services/instagram.js";
+import { COMMENTS_SCOPE } from "../services/tiktok.js";
+import { lockedUsername } from "./tiktok.js";
 import { getCoin, getCoinByIdOrMint, publicCoin, type CoinRow } from "../services/coins.js";
-import { upsertAccessRequest } from "../services/instagramAccess.js";
+import { upsertAccessRequest } from "../services/tiktokAccess.js";
 import { createDraft, prepareLaunch, submitLaunch } from "../services/launch.js";
 import { buildBuyTx } from "../services/pumpportal.js";
 import { getKillSwitch } from "../services/settings.js";
@@ -49,16 +50,16 @@ async function ownedCoin(id: string, wallet: string | undefined): Promise<CoinRo
   return coin;
 }
 
-async function instagramSummary(coinId: string) {
-  return one<{ username: string; status: string; profile_picture_url: string | null; scopes: string[]; comments_error: string | null }>(
-    `SELECT username, status, profile_picture_url, scopes, comments_error FROM instagram_accounts WHERE coin_id = $1`,
+async function tiktokSummary(coinId: string) {
+  return one<{ username: string; status: string; avatar_url: string | null; scopes: string[]; comments_error: string | null }>(
+    `SELECT username, status, avatar_url, scopes, comments_error FROM tiktok_accounts WHERE coin_id = $1`,
     [coinId],
   );
 }
 
 async function accessRequest(coinId: string) {
   return one<{ username: string; status: string; requested_at: Date; invited_at: Date | null }>(
-    `SELECT username, status, requested_at, invited_at FROM instagram_access_requests WHERE coin_id = $1`,
+    `SELECT username, status, requested_at, invited_at FROM tiktok_access_requests WHERE coin_id = $1`,
     [coinId],
   );
 }
@@ -71,10 +72,10 @@ coinsRouter.get(
     const limit = Math.min(Number(req.query.limit ?? 30) || 30, 60);
     const before = typeof req.query.before === "string" ? new Date(req.query.before) : null;
     const rows = await query(
-      `SELECT c.*, i.username AS ig_username,
+      `SELECT c.*, i.username AS tt_username,
               (SELECT media FROM posts p WHERE p.coin_id = c.id AND p.status = 'published' ORDER BY published_at DESC LIMIT 1) AS last_media,
               (SELECT count(*) FROM posts p WHERE p.coin_id = c.id AND p.status = 'published')::int AS post_count
-       FROM coins c LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+       FROM coins c LEFT JOIN tiktok_accounts i ON i.coin_id = c.id AND i.status = 'active'
        WHERE c.status = 'live' AND ($2::timestamptz IS NULL OR c.launched_at < $2)
        ORDER BY c.launched_at DESC LIMIT $1`,
       [limit, before && !isNaN(before.getTime()) ? before : null],
@@ -82,7 +83,7 @@ coinsRouter.get(
     res.json({
       coins: rows.rows.map((r: any) =>
         publicCoin(r, {
-          instagram: r.ig_username ? { username: r.ig_username } : null,
+          tiktok: r.tt_username ? { username: r.tt_username } : null,
           lastImage: (r.last_media ?? []).find((m: any) => m.type === "image")?.url ?? null,
           postCount: r.post_count,
         }),
@@ -118,24 +119,24 @@ coinsRouter.get(
     const coin = await getCoinByIdOrMint(String(req.params.key));
     if (!coin || (coin.status !== "live" && coin.creator_wallet !== req.wallet)) throw new HttpError(404, "Coin not found");
     const isOwner = coin.creator_wallet === req.wallet;
-    const [ig, request] = await Promise.all([instagramSummary(coin.id), isOwner ? accessRequest(coin.id) : null]);
+    const [tt, request] = await Promise.all([tiktokSummary(coin.id), isOwner ? accessRequest(coin.id) : null]);
     res.json({
       coin: publicCoin(coin, {
         // The handle only shows while the account is connected. After a disconnect it's gone for everyone;
         // the owner still learns about an expired connection so they can log in again.
-        instagram:
-          ig?.status === "active"
+        tiktok:
+          tt?.status === "active"
             ? {
-                username: ig.username,
-                status: ig.status,
-                picture: ig.profile_picture_url,
-                commentsEnabled: (ig.scopes ?? []).includes(COMMENTS_SCOPE),
-                ...(isOwner ? { commentsError: ig.comments_error } : {}),
+                username: tt.username,
+                status: tt.status,
+                picture: tt.avatar_url,
+                commentsEnabled: config.TIKTOK_COMMENTS && (tt.scopes ?? []).includes(COMMENTS_SCOPE),
+                ...(isOwner ? { commentsError: tt.comments_error } : {}),
               }
-            : ig?.status === "expired" && isOwner
-              ? { username: ig.username, status: ig.status, picture: null }
+            : tt?.status === "expired" && isOwner
+              ? { username: tt.username, status: tt.status, picture: null }
               : null,
-        instagramAccess: request
+        tiktokAccess: request
           ? { username: request.username, status: request.status, requestedAt: request.requested_at, invitedAt: request.invited_at }
           : null,
         isOwner,
@@ -319,20 +320,20 @@ coinsRouter.post(
 );
 
 /**
- * Tester mode: the creator tells us which Instagram account to add as a tester.
+ * Tester mode: the creator tells us which TikTok account to add as a sandbox target user.
  * Submitting a different username resets the request to pending.
  */
 coinsRouter.put(
-  "/:id/instagram-access",
+  "/:id/tiktok-access",
   requireAuth,
   asyncHandler(async (req, res) => {
     const coin = await ownedCoin(String(req.params.id), req.wallet);
-    const { username } = z.object({ username: instagramUsernameSchema }).parse(req.body);
-    const current = await one<{ username: string }>(`SELECT username FROM instagram_access_requests WHERE coin_id = $1`, [coin.id]);
-    if (coin.status === "live" && current && current.username !== username) {
-      throw new HttpError(400, `This coin launched with @${current.username} as its website, so that's the account it uses.`);
+    const { username } = z.object({ username: tiktokUsernameSchema }).parse(req.body);
+    const locked = await lockedUsername(coin);
+    if (locked && locked !== username) {
+      throw new HttpError(400, `This coin launched with @${locked} as its website, so that's the account it uses.`);
     }
-    res.json({ instagramAccess: await upsertAccessRequest(coin.id, username) });
+    res.json({ tiktokAccess: await upsertAccessRequest(coin.id, username) });
   }),
 );
 
@@ -367,7 +368,7 @@ coinsRouter.post(
 
 // ---- comments ----
 
-/** The influencer's comment threads (public: comments and replies are public on Instagram too). */
+/** The influencer's comment threads (public: comments and replies are public on TikTok too). */
 coinsRouter.get(
   "/:key/comments",
   asyncHandler(async (req, res) => {
@@ -401,12 +402,12 @@ coinsRouter.post(
     const commentId = String(req.params.commentId);
     if (req.params.action === "skip") {
       await query(
-        `UPDATE ig_comments SET status = 'skipped', action = 'skip', reason = 'skipped by the creator' WHERE id = $1 AND coin_id = $2 AND status IN ('new','failed')`,
+        `UPDATE tiktok_comments SET status = 'skipped', action = 'skip', reason = 'skipped by the creator' WHERE id = $1 AND coin_id = $2 AND status IN ('new','failed')`,
         [commentId, coin.id],
       );
     } else {
       await query(
-        `UPDATE ig_comments SET status = 'new', attempts = 0, reason = NULL WHERE id = $1 AND coin_id = $2 AND status IN ('skipped','failed') AND NOT is_own`,
+        `UPDATE tiktok_comments SET status = 'new', attempts = 0, reason = NULL WHERE id = $1 AND coin_id = $2 AND status IN ('skipped','failed') AND NOT is_own`,
         [commentId, coin.id],
       );
       await enqueue("comments.respond", { coinId: coin.id }, { dedupeKey: `respond:${coin.id}`, maxAttempts: 2 });
@@ -439,12 +440,12 @@ postsRouter.get(
     const valid = (d: Date | null) => (d && !isNaN(d.getTime()) ? d : null);
     const rows = await query<any>(
       `SELECT p.id, p.format, p.caption, p.media, p.permalink, p.published_at,
-              c.id AS coin_id, c.name, c.symbol, c.mint, c.image_url, i.username AS ig_username,
+              c.id AS coin_id, c.name, c.symbol, c.mint, c.image_url, i.username AS tt_username,
               o.name AS collab_name, o.symbol AS collab_symbol, o.mint AS collab_mint, o.id AS collab_id
        FROM posts p
        LEFT JOIN coins o ON o.id = p.collab_coin_id
        JOIN coins c ON c.id = p.coin_id AND c.status = 'live'
-       LEFT JOIN instagram_accounts i ON i.coin_id = c.id AND i.status = 'active'
+       LEFT JOIN tiktok_accounts i ON i.coin_id = c.id AND i.status = 'active'
        WHERE p.status = 'published' AND p.published_at IS NOT NULL
          AND ($2::timestamptz IS NULL OR p.published_at < $2)
          AND ($3::timestamptz IS NULL OR p.published_at > $3)
@@ -460,7 +461,7 @@ postsRouter.get(
         media: (r.media ?? []).map((m: any) => ({ type: m.type, url: m.url, role: m.role })),
         permalink: r.permalink,
         publishedAt: r.published_at,
-        coin: { id: r.coin_id, name: r.name, symbol: r.symbol, mint: r.mint, imageUrl: r.image_url, instagram: r.ig_username },
+        coin: { id: r.coin_id, name: r.name, symbol: r.symbol, mint: r.mint, imageUrl: r.image_url, tiktok: r.tt_username },
         collab: r.collab_id ? { id: r.collab_id, name: r.collab_name, symbol: r.collab_symbol, mint: r.collab_mint } : null,
       })),
     });

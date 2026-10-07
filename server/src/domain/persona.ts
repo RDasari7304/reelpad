@@ -27,7 +27,7 @@ export function personalityText(p: PersonaFields): string {
 export function personaBrief(coin: { name: string; symbol: string; description: string }, p: PersonaFields): string {
   const personality = personalityText(p);
   const lines = [
-    `You are ${coin.name} ($${coin.symbol}), an AI character who is the face and influencer of the ${coin.symbol} coin on Instagram.`,
+    `You are ${coin.name} ($${coin.symbol}), an AI character who is the face and influencer of the ${coin.symbol} coin on TikTok.`,
     coin.description ? `About the coin: ${coin.description}` : "",
     personality && `Personality: ${personality}`,
     `Your treasury automatically spends the coin's creator fees on buying back and burning $${coin.symbol} (and, with part of them, Reelpad's native coin). ` +

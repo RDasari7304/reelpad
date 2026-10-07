@@ -78,7 +78,7 @@ gh repo create reelpad --private --source . --push
 | `PINATA_JWT` | from Pinata |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | from R2 |
 | `S3_PUBLIC_BASE_URL` | `https://media.yourdomain.com` |
-| `IG_APP_ID` / `IG_APP_SECRET` | Instagram app ID and secret from Meta |
+| `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` | Client key and secret from your TikTok developer app |
 | `ANTHROPIC_API_KEY` / `FAL_KEY` | production keys |
 
 3. Optional settings (add under Environment if you want to change the defaults): `PLATFORM_FEE_SOL` (default 0.02),
@@ -86,7 +86,7 @@ gh repo create reelpad --private --source . --push
 4. Apply. The first deploy takes a few minutes. When it's live, `https://<service>.onrender.com/api/health` returns
    `{"ok":true}`.
 
-`TREASURY_DRY_RUN=true` and `IG_ACCESS_MODE=testers` are preset. Leave both for now.
+`TREASURY_DRY_RUN=true` and `TIKTOK_ACCESS_MODE=testers` are preset. Leave both for now.
 
 ## 6. Point your domain at Render
 
@@ -98,32 +98,33 @@ gh repo create reelpad --private --source . --push
 3. Cloudflare → SSL/TLS → Overview → set encryption mode to **Full**.
 4. Back in Render, click **Verify**. The HTTPS certificate is issued automatically, usually within minutes.
 
-## 7. Point Instagram at the production domain
+## 7. Point TikTok at the production domain
 
-In your Meta developer app:
-1. Instagram → API setup with Instagram login → Business login settings → OAuth redirect URIs: add
-   `https://yourdomain.com/api/instagram/callback`.
-2. Same settings page: Deauthorize callback `https://yourdomain.com/api/instagram/deauthorize`, Data deletion request
-   `https://yourdomain.com/api/instagram/data-deletion`.
-3. App settings → Basic: Privacy policy `https://yourdomain.com/privacy`, Terms `https://yourdomain.com/terms`, an app
-   icon, and a contact email.
-4. Start **Business Verification** and submit **App Review** for `instagram_business_basic` and
-   `instagram_business_content_publish`, with a screencast of: launch → enter username → log in with Instagram → a post
-   appears. Until approved, creators use the tester queue in Admin.
+In your app at developers.tiktok.com:
+1. Add the **Login Kit** and **Content Posting API** products. In Content Posting API, turn on **Direct Post**.
+2. Login Kit → Redirect URI: `https://yourdomain.com/api/tiktok/callback`.
+3. Scopes: `user.info.basic`, `user.info.profile`, `video.publish`, `video.upload`, `video.list`.
+4. **URL properties**: verify the domain (or URL prefix) of `S3_PUBLIC_BASE_URL`, e.g. `https://media.yourdomain.com/`.
+   TikTok only pulls videos and photos from verified URLs.
+5. Webhooks → Callback URL: `https://yourdomain.com/api/tiktok/webhook` (TikTok tells us when a creator removes the app).
+6. App details: Terms `https://yourdomain.com/terms`, Privacy policy `https://yourdomain.com/privacy`, an icon, and a
+   description.
+7. **Submit for review** (audit) with a screencast of: launch → enter username → log in with TikTok → a post appears.
+   Until approved, creators use the sandbox queue in Admin, and TikTok only allows private ("only me") posts.
 
 ## 8. Go-live check
 
 1. Open `https://yourdomain.com`, connect your admin wallet, sign in, open **Admin**.
 2. Launch a test coin with a small amount of SOL. On pump.fun, check the coin's creator is the **agent wallet** shown on
    the coin's Treasury tab.
-3. Connect a test Instagram account through the tester flow; the first post should appear within a few minutes.
+3. Connect a test TikTok account through the sandbox flow; the first post should appear within a few minutes.
 4. Watch the Treasury tab log simulated actions for a few days. When you trust it, set `TREASURY_DRY_RUN=false` in
    Render (keep the platform caps low at first).
-5. When Meta approves the app, set `IG_ACCESS_MODE=open` in Render.
+5. When TikTok approves the app, set `TIKTOK_ACCESS_MODE=open` in Render.
 
 ## Running it
 
-- **Admin → Instagram access**: check the tester queue daily until Meta approves you.
+- **Admin → TikTok access**: check the sandbox queue daily until TikTok approves you.
 - **Admin → Emergency stops** pause launches, posting or trading platform-wide instantly.
 - **Admin → Today** shows AI spend against the daily budget and recent failures.
 - Render redeploys automatically when you push to GitHub.

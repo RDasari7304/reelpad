@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, normalizeInstagramUsername, shortAddr } from "./api";
+import { api, normalizeTikTokUsername, shortAddr } from "./api";
 
 type AccessState = "none" | "pending" | "invited" | "connected" | "expired" | "disconnected";
 
@@ -19,17 +19,17 @@ interface AdminCoin {
 
 interface AdminCoinsResponse {
   accessMode: "testers" | "open";
-  metaRolesUrl: string;
+  sandboxUrl: string;
   testersUsed: number;
   coins: AdminCoin[];
 }
 
-const TESTER_LIMIT = 50;
+const TESTER_LIMIT = 10; // TikTok sandbox target users
 
 const STATE_LABEL: Record<AccessState, string> = {
   none: "No username yet",
-  pending: "Needs tester invite",
-  invited: "Invited, waiting for creator",
+  pending: "Needs sandbox access",
+  invited: "Added, waiting for creator to log in",
   connected: "Connected",
   expired: "Connection expired",
   disconnected: "Disconnected",
@@ -46,8 +46,8 @@ const COIN_STATUS: Record<AdminCoin["status"], string> = {
 type Filter = "all" | "pending" | "invited" | "connected" | "none";
 const FILTERS: Array<[Filter, string]> = [
   ["all", "All"],
-  ["pending", "Needs invite"],
-  ["invited", "Invited"],
+  ["pending", "Needs access"],
+  ["invited", "Added"],
   ["connected", "Connected"],
   ["none", "No username"],
 ];
@@ -58,7 +58,7 @@ const ago = (iso: string | null) => {
   return h < 1 ? `${Math.max(1, Math.round(h * 60))} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`;
 };
 
-/** Admin: every coin created so far, with its creator and Instagram tester status. */
+/** Admin: every coin created so far, with its creator and TikTok sandbox access status. */
 export function AdminCoins() {
   const [data, setData] = useState<AdminCoinsResponse | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -94,16 +94,15 @@ export function AdminCoins() {
     <div className="admin-coins">
       {testers ? (
         <p className="sub-hint">
-          To give a creator access: copy their Instagram username, open{" "}
-          <a href={data.metaRolesUrl} target="_blank" rel="noreferrer">
-            Roles in the Meta dashboard
+          To give a creator access: copy their TikTok username, open{" "}
+          <a href={data.sandboxUrl} target="_blank" rel="noreferrer">
+            your app's Sandbox in the TikTok developer portal
           </a>
-          , choose Add people, pick Instagram Tester, paste the username and send the invite. Then click Mark invited here so
-          the creator's coin page shows them how to accept. Testers in use: <strong>{data.testersUsed}</strong> of about{" "}
-          {TESTER_LIMIT}.
+          , go to Target users, add the account, then click Mark added here so the creator's coin page shows the Log in
+          with TikTok button. Sandbox users in use: <strong>{data.testersUsed}</strong> of {TESTER_LIMIT}.
         </p>
       ) : (
-        <p className="sub-hint">Open mode: creators log in with Instagram directly. No tester invites needed.</p>
+        <p className="sub-hint">Open mode: creators log in with TikTok directly. No sandbox access needed.</p>
       )}
 
       <div className="admin-coins-bar">
@@ -181,15 +180,15 @@ function CoinRow({ coin, testers, onChange }: { coin: AdminCoin; testers: boolea
 
   const saveUsername = (e: FormEvent) => {
     e.preventDefault();
-    const u = normalizeInstagramUsername(value);
-    if (!u) return setError("Use letters, numbers, periods and underscores (max 30).");
-    run(() => api(`/admin/coins/${coin.id}/instagram-access`, { method: "PUT", json: { username: u } })).then(() =>
+    const u = normalizeTikTokUsername(value);
+    if (!u) return setError("Use letters, numbers, periods and underscores (2-24, not ending in a period).");
+    run(() => api(`/admin/coins/${coin.id}/tiktok-access`, { method: "PUT", json: { username: u } })).then(() =>
       setEditing(false),
     );
   };
 
   const markInvited = (invited: boolean) =>
-    run(() => api(`/admin/instagram-requests/${coin.id}/invited`, { method: "POST", json: { invited } }));
+    run(() => api(`/admin/tiktok-requests/${coin.id}/invited`, { method: "POST", json: { invited } }));
 
   return (
     <li className={`admin-coin is-${state}`}>
@@ -207,7 +206,7 @@ function CoinRow({ coin, testers, onChange }: { coin: AdminCoin; testers: boolea
         </span>
       </div>
 
-      <div className="admin-coin-ig">
+      <div className="admin-coin-tt">
         {editing ? (
           <form className="username-form" onSubmit={saveUsername}>
             <span className="at" aria-hidden>
@@ -216,13 +215,13 @@ function CoinRow({ coin, testers, onChange }: { coin: AdminCoin; testers: boolea
             <input
               className="input"
               value={value}
-              maxLength={31}
+              maxLength={25}
               autoFocus
               autoCapitalize="off"
               autoComplete="off"
               spellCheck={false}
               onChange={(e) => setValue(e.target.value)}
-              aria-label={`Instagram username for ${coin.name}`}
+              aria-label={`TikTok username for ${coin.name}`}
             />
             <button className="btn btn-small btn-primary" disabled={busy}>
               Save
@@ -238,7 +237,7 @@ function CoinRow({ coin, testers, onChange }: { coin: AdminCoin; testers: boolea
                 @{username} <span>{copied === "user" ? "Copied" : "Copy"}</span>
               </button>
             )}
-            <span className={`ig-state ig-state-${state}`}>
+            <span className={`tt-state tt-state-${state}`}>
               {STATE_LABEL[state]}
               {state === "pending" && coin.access.requestedAt ? `, requested ${ago(coin.access.requestedAt)}` : ""}
               {state === "invited" && coin.access.invitedAt ? ` (${ago(coin.access.invitedAt)})` : ""}
@@ -252,12 +251,12 @@ function CoinRow({ coin, testers, onChange }: { coin: AdminCoin; testers: boolea
         <div className="admin-coin-actions">
           {testers && state === "pending" && (
             <button className="btn btn-small btn-primary" disabled={busy} onClick={() => markInvited(true)}>
-              Mark invited
+              Mark added
             </button>
           )}
           {testers && state === "invited" && (
             <button className="btn btn-small btn-quiet" disabled={busy} onClick={() => markInvited(false)}>
-              Undo invite
+              Undo
             </button>
           )}
           {state !== "connected" && (

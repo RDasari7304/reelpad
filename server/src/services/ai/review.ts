@@ -32,7 +32,7 @@ export async function reviewImage(candidateUrl: string, referenceUrl: string, br
   try {
     const r = await structured<{ same_character: boolean; clean: boolean; matches_brief: boolean; fix: string }>({
       model: config.QUALITY_CHECK_MODEL,
-      system: "You are a strict art director checking AI-generated Instagram images of a recurring character before they're posted.",
+      system: "You are a strict art director checking AI-generated TikTok photos of a recurring character before they're posted.",
       user: `Image 1 is the character's reference (its official look). Image 2 was just generated for this brief:\n${brief.slice(0, 800)}${liveAction ? LIVE_ACTION_NOTE : ""}\n\nCheck image 2.`,
       images: [referenceUrl, candidateUrl],
       toolName: "image_review",
@@ -68,7 +68,7 @@ export async function reviewShot(strip: { data: string; mediaType: "image/jpeg" 
   try {
     const r = await structured<{ same_character: boolean; clean: boolean; matches_brief: boolean; fix: string }>({
       model: config.QUALITY_CHECK_MODEL,
-      system: "You are a strict video editor checking AI-generated video shots of a recurring character before they go into an Instagram Reel.",
+      system: "You are a strict video editor checking AI-generated video shots of a recurring character before they go into a TikTok video.",
       user: `Image 1 is the character's reference (its official look). Image 2 shows three frames (start, middle, end, left to right) from a video shot made for this brief:\n${brief.slice(0, 800)}${liveAction ? LIVE_ACTION_NOTE : ""}\n\nCheck the shot.`,
       images: [referenceUrl],
       imageData: [strip],

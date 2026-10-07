@@ -17,8 +17,8 @@ import { repliesAllowed } from "../domain/activity.js";
 import { personaBrief } from "../domain/persona.js";
 import { logger } from "../lib/logger.js";
 import { structured } from "./ai/claude.js";
-import { getCoin, getInstagram, markInstagramExpired, type CoinRow } from "./coins.js";
-import { COMMENTS_SCOPE, InstagramError, listComments, mediaCommentCounts, replyToComment } from "./instagram.js";
+import { getCoin, getTikTok, markTikTokExpired, type CoinRow } from "./coins.js";
+import { COMMENTS_SCOPE, listComments, mediaCommentCounts, replyToComment, TikTokError } from "./tiktok.js";
 import { getKillSwitch } from "./settings.js";
 import { reserveSpend } from "./spend.js";
 
@@ -38,28 +38,30 @@ interface AccountRow {
 }
 
 async function account(coinId: string) {
-  return one<AccountRow>(`SELECT scopes, comments_error, status FROM instagram_accounts WHERE coin_id = $1`, [coinId]);
+  return one<AccountRow>(`SELECT scopes, comments_error, status FROM tiktok_accounts WHERE coin_id = $1`, [coinId]);
 }
 
-export const commentsEnabled = (a: AccountRow | null) => !!a && a.status === "active" && a.scopes.includes(COMMENTS_SCOPE);
+/** Comment replies run when the app has TikTok's comment scopes (TIKTOK_COMMENTS) and the creator granted them. */
+export const commentsEnabled = (a: AccountRow | null) =>
+  config.TIKTOK_COMMENTS && !!a && a.status === "active" && a.scopes.includes(COMMENTS_SCOPE);
 
 async function setCommentsError(coinId: string, message: string | null) {
-  await query(`UPDATE instagram_accounts SET comments_error = $2 WHERE coin_id = $1`, [coinId, message]);
+  await query(`UPDATE tiktok_accounts SET comments_error = $2 WHERE coin_id = $1`, [coinId, message]);
 }
 
-/** Handles an Instagram error during comment work. Returns true if the run should stop. */
-async function handleIgError(coinId: string, e: unknown): Promise<boolean> {
-  if (!(e instanceof InstagramError)) throw e;
+/** Handles a TikTok error during comment work. Returns true if the run should stop. */
+async function handleTtError(coinId: string, e: unknown): Promise<boolean> {
+  if (!(e instanceof TikTokError)) throw e;
   if (e.isAuth) {
-    await markInstagramExpired(coinId);
+    await markTikTokExpired(coinId);
     return true;
   }
   if (e.isPermission) {
-    await setCommentsError(coinId, "Instagram didn't allow comment access. Reconnect Instagram and allow comment management.");
+    await setCommentsError(coinId, "TikTok didn't allow comment access. Reconnect TikTok and allow comment management.");
     return true;
   }
   if (e.isRateLimit) {
-    logger.warn({ coinId }, "instagram rate limit during comments; will retry later");
+    logger.warn({ coinId }, "tiktok rate limit during comments; will retry later");
     return true;
   }
   return false;
@@ -73,13 +75,13 @@ export async function syncComments(coinId: string) {
   if (!coin || coin.status !== "live") return;
   const acct = await account(coinId);
   if (!commentsEnabled(acct)) return;
-  const ig = await getInstagram(coinId);
-  if (!ig || ig.status !== "active") return;
+  const tt = await getTikTok(coinId);
+  if (!tt || tt.status !== "active") return;
   await query(`UPDATE coins SET last_comment_sync_at = now() WHERE id = $1`, [coinId]);
 
-  const posts = await query<{ id: string; ig_media_id: string; ig_comments_count: number }>(
-    `SELECT id, ig_media_id, ig_comments_count FROM posts
-     WHERE coin_id = $1 AND status = 'published' AND ig_media_id IS NOT NULL AND published_at > now() - interval '7 days'
+  const posts = await query<{ id: string; tiktok_post_id: string; comments_count: number }>(
+    `SELECT id, tiktok_post_id, comments_count FROM posts
+     WHERE coin_id = $1 AND status = 'published' AND format = 'reel' AND tiktok_post_id IS NOT NULL AND published_at > now() - interval '7 days'
      ORDER BY published_at DESC LIMIT 25`,
     [coinId],
   );
@@ -87,35 +89,35 @@ export async function syncComments(coinId: string) {
 
   let counts: Map<string, number>;
   try {
-    counts = await mediaCommentCounts(ig.igUserId, ig.token);
+    counts = await mediaCommentCounts(tt.token, posts.rows.map((p) => p.tiktok_post_id));
   } catch (e) {
-    if (await handleIgError(coinId, e)) return;
+    if (await handleTtError(coinId, e)) return;
     throw e;
   }
-  const own = ig.username.toLowerCase();
+  const own = tt.username.toLowerCase();
   let fetched = 0;
   for (const p of posts.rows) {
-    const count = counts.get(p.ig_media_id);
-    if (count === undefined || count === p.ig_comments_count) continue;
+    const count = counts.get(p.tiktok_post_id);
+    if (count === undefined || count === p.comments_count) continue;
     let comments;
     try {
-      comments = await listComments(p.ig_media_id, ig.token);
+      comments = await listComments(tt.openId, p.tiktok_post_id, tt.token);
     } catch (e) {
-      if (await handleIgError(coinId, e)) return;
-      logger.warn({ coinId, media: p.ig_media_id, err: (e as Error).message }, "comment fetch failed");
+      if (await handleTtError(coinId, e)) return;
+      logger.warn({ coinId, media: p.tiktok_post_id, err: (e as Error).message }, "comment fetch failed");
       continue;
     }
     fetched++;
     for (const c of comments) {
-      await upsertComment(coinId, p.id, p.ig_media_id, null, c, own);
-      for (const r of c.replies?.data ?? []) await upsertComment(coinId, p.id, p.ig_media_id, c.id, r, own);
+      await upsertComment(coinId, p.id, p.tiktok_post_id, null, c, own);
+      for (const r of c.replies?.data ?? []) await upsertComment(coinId, p.id, p.tiktok_post_id, c.id, r, own);
     }
-    await query(`UPDATE posts SET ig_comments_count = $2, comments_synced_at = now() WHERE id = $1`, [p.id, count]);
+    await query(`UPDATE posts SET comments_count = $2, comments_synced_at = now() WHERE id = $1`, [p.id, count]);
   }
   if (acct?.comments_error) await setCommentsError(coinId, null);
   // Answer whenever comments are waiting (new ones only become answerable after a short, human-like delay,
   // so this also picks up ones fetched on an earlier sync). No waiting comments = no AI call.
-  const waiting = await one(`SELECT 1 FROM ig_comments WHERE coin_id = $1 AND status = 'new' LIMIT 1`, [coinId]);
+  const waiting = await one(`SELECT 1 FROM tiktok_comments WHERE coin_id = $1 AND status = 'new' LIMIT 1`, [coinId]);
   if (waiting && coin.content_settings.commentReplies !== false) {
     await enqueue("comments.respond", { coinId }, { dedupeKey: `respond:${coinId}`, maxAttempts: 2 });
   }
@@ -133,7 +135,7 @@ async function upsertComment(
   const username = String(c.username ?? "unknown");
   const isOwn = username.toLowerCase() === ownUsername;
   await query(
-    `INSERT INTO ig_comments(id, coin_id, post_id, media_id, parent_id, username, text, like_count, commented_at, is_own, status)
+    `INSERT INTO tiktok_comments(id, coin_id, post_id, media_id, parent_id, username, text, like_count, commented_at, is_own, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO UPDATE SET like_count = EXCLUDED.like_count, text = EXCLUDED.text`,
     [
@@ -155,12 +157,13 @@ async function upsertComment(
 /** Called every minute by the worker: queue a sync for coins that are due. */
 export async function scheduleCommentSyncs() {
   const due = await query<{ id: string }>(
-    `SELECT c.id FROM coins c JOIN instagram_accounts i ON i.coin_id = c.id
+    `SELECT c.id FROM coins c JOIN tiktok_accounts i ON i.coin_id = c.id
      WHERE c.status = 'live' AND c.activity_state <> 'dormant' AND i.status = 'active' AND $2 = ANY(i.scopes)
        AND (c.last_comment_sync_at IS NULL OR c.last_comment_sync_at < now() - ($1 || ' minutes')::interval)
      ORDER BY c.last_comment_sync_at NULLS FIRST LIMIT 40`,
     [String(config.COMMENT_SYNC_MIN), COMMENTS_SCOPE],
   );
+  if (!config.TIKTOK_COMMENTS) return;
   for (const c of due.rows) await enqueue("comments.sync", { coinId: c.id }, { dedupeKey: `csync:${c.id}`, maxAttempts: 1 });
 }
 
@@ -196,7 +199,7 @@ const REPLY_SCHEMA = {
   additionalProperties: false,
 };
 
-const REPLY_RULES = `How you answer comments on your own Instagram posts:
+const REPLY_RULES = `How you answer comments on your own TikTok videos:
 - Be selective, like a real creator: you do NOT answer everything. Most comments get "skip". Only answer comments you find genuinely interesting: a real question, something funny or creative you want to play off, someone picking up on your story or lore, thoughtful criticism, or someone continuing a conversation with you. Generic praise, hype, "gm", "lfg", emoji strings and "first" are usually skipped. Expect to answer roughly one comment in three or four.
 - Score every comment's "interest" honestly (0-10) before deciding; only reply when it's 7 or more (5 or more if they're replying to something you said).
 - Read each comment in its context: the post it's on, the thread so far, and what you and this person have said before. Answer what they actually said, not a generic version of it.
@@ -229,13 +232,13 @@ export async function respondToComments(coinId: string) {
   if (coin.content_settings.commentReplies === false) return;
   const acct = await account(coinId);
   if (!commentsEnabled(acct)) return;
-  const ig = await getInstagram(coinId);
-  if (!ig || ig.status !== "active") return;
+  const tt = await getTikTok(coinId);
+  if (!tt || tt.status !== "active") return;
 
   const used = await one<{ hour: number; day: number }>(
     `SELECT count(*) FILTER (WHERE replied_at > now() - interval '1 hour')::int AS hour,
             count(*) FILTER (WHERE replied_at > now() - interval '24 hours')::int AS day
-     FROM ig_comments WHERE coin_id = $1 AND status = 'replied'`,
+     FROM tiktok_comments WHERE coin_id = $1 AND status = 'replied'`,
     [coinId],
   );
   const perDay = coin.content_settings.commentRepliesPerDay ?? 40;
@@ -243,7 +246,7 @@ export async function respondToComments(coinId: string) {
   if (budget <= 0) return;
 
   const rows = await query<any>(
-    `SELECT id, parent_id, media_id, username, text, commented_at, like_count, is_own, status FROM ig_comments
+    `SELECT id, parent_id, media_id, username, text, commented_at, like_count, is_own, status FROM tiktok_comments
      WHERE coin_id = $1 AND commented_at > now() - interval '7 days' ORDER BY commented_at LIMIT 3000`,
     [coinId],
   );
@@ -259,7 +262,7 @@ export async function respondToComments(coinId: string) {
     status: r.status,
   }));
   const perUser = await query<{ u: string; n: number }>(
-    `SELECT lower(username) AS u, count(*)::int AS n FROM ig_comments
+    `SELECT lower(username) AS u, count(*)::int AS n FROM tiktok_comments
      WHERE coin_id = $1 AND status = 'replied' AND replied_at > now() - interval '24 hours' GROUP BY 1`,
     [coinId],
   );
@@ -269,7 +272,7 @@ export async function respondToComments(coinId: string) {
     repliedTodayByUser: new Map(perUser.rows.map((r) => [r.u, r.n])),
   });
   for (const s of selection.skip) {
-    await query(`UPDATE ig_comments SET status = 'skipped', action = 'skip', reason = $2 WHERE id = $1 AND status = 'new'`, [
+    await query(`UPDATE tiktok_comments SET status = 'skipped', action = 'skip', reason = $2 WHERE id = $1 AND status = 'new'`, [
       s.comment.id,
       s.reason,
     ]);
@@ -277,11 +280,11 @@ export async function respondToComments(coinId: string) {
   if (!selection.reply.length) return;
   if (!(await reserveSpend(config.COST_LLM_USD))) return;
 
-  const decisions = await decide(coin, ig.username, selection.reply, all);
+  const decisions = await decide(coin, tt.username, selection.reply, all);
   const recentOwn = new Set(
     (
       await query<{ t: string }>(
-        `SELECT lower(reply_text) AS t FROM ig_comments WHERE coin_id = $1 AND status = 'replied' ORDER BY replied_at DESC LIMIT 50`,
+        `SELECT lower(reply_text) AS t FROM tiktok_comments WHERE coin_id = $1 AND status = 'replied' ORDER BY replied_at DESC LIMIT 50`,
         [coinId],
       )
     ).rows.map((r) => r.t),
@@ -293,7 +296,7 @@ export async function respondToComments(coinId: string) {
     const d = decisions.get(c.id);
     if (!d) {
       // No decision came back for it: try again next round, three times at most.
-      const r = await one<{ attempts: number }>(`UPDATE ig_comments SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts`, [c.id]);
+      const r = await one<{ attempts: number }>(`UPDATE tiktok_comments SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts`, [c.id]);
       if ((r?.attempts ?? 0) >= 3) await finish(c.id, "skipped", "skip", null, null, "no reply decided");
       continue;
     }
@@ -328,25 +331,25 @@ export async function respondToComments(coinId: string) {
     if (posted > 0) await sleep(4000 + Math.floor(Math.random() * 6000));
     const target = replyTargetId(c);
     try {
-      const replyId = await replyToComment(target, text, ig.token);
+      const replyId = await replyToComment(tt.openId, c.mediaId, target, text, tt.token);
       posted++;
       recentOwn.add(text.toLowerCase());
       await finish(c.id, "replied", d.action, replyId, text, short(`${d.reason || "answered"} · interest ${d.interest}/10`, 200));
       await query(
-        `INSERT INTO ig_comments(id, coin_id, post_id, media_id, parent_id, username, text, commented_at, is_own, status)
-         SELECT $1, coin_id, post_id, media_id, $2, $3, $4, now(), true, 'own' FROM ig_comments WHERE id = $5
+        `INSERT INTO tiktok_comments(id, coin_id, post_id, media_id, parent_id, username, text, commented_at, is_own, status)
+         SELECT $1, coin_id, post_id, media_id, $2, $3, $4, now(), true, 'own' FROM tiktok_comments WHERE id = $5
          ON CONFLICT (id) DO NOTHING`,
-        [replyId, target, ig.username, text, c.id],
+        [replyId, target, tt.username, text, c.id],
       );
     } catch (e) {
       const err = e as Error;
-      if (e instanceof InstagramError && e.isGone) {
+      if (e instanceof TikTokError && e.isGone) {
         await finish(c.id, "skipped", "skip", null, null, "comment no longer available");
         continue;
       }
-      if (await handleIgError(coinId, e)) return;
+      if (await handleTtError(coinId, e)) return;
       const r = await one<{ attempts: number }>(
-        `UPDATE ig_comments SET attempts = attempts + 1, reason = $2 WHERE id = $1 RETURNING attempts`,
+        `UPDATE tiktok_comments SET attempts = attempts + 1, reason = $2 WHERE id = $1 RETURNING attempts`,
         [c.id, short(err.message, 200)],
       );
       if ((r?.attempts ?? 0) >= 3) await finish(c.id, "failed", d.action, null, text, short(err.message, 200));
@@ -358,7 +361,7 @@ export async function respondToComments(coinId: string) {
 
 async function finish(id: string, status: string, action: string, replyId: string | null, replyText: string | null, reason: string) {
   await query(
-    `UPDATE ig_comments SET status = $2, action = $3, reply_id = $4, reply_text = $5, reason = $6,
+    `UPDATE tiktok_comments SET status = $2, action = $3, reply_id = $4, reply_text = $5, reason = $6,
             replied_at = CASE WHEN $2 = 'replied' THEN now() ELSE replied_at END
      WHERE id = $1`,
     [id, status, action, replyId, replyText, reason],
@@ -368,20 +371,20 @@ async function finish(id: string, status: string, action: string, replyId: strin
 /** One Claude call for the whole batch, with full context for each comment. */
 async function decide(coin: CoinRow, ownUsername: string, batch: StoredComment[], all: StoredComment[]): Promise<Map<string, Decision>> {
   const mediaIds = [...new Set(batch.map((c) => c.mediaId))];
-  type PostCtx = { ig_media_id: string; caption: string | null; concept: string | null; format: string; plan: any; published_at: Date };
+  type PostCtx = { tiktok_post_id: string; caption: string | null; concept: string | null; format: string; plan: any; published_at: Date };
   const posts = await query<PostCtx>(
-    `SELECT ig_media_id, caption, concept, format, plan, published_at FROM posts WHERE coin_id = $1 AND ig_media_id = ANY($2)`,
+    `SELECT tiktok_post_id, caption, concept, format, plan, published_at FROM posts WHERE coin_id = $1 AND tiktok_post_id = ANY($2)`,
     [coin.id, mediaIds],
   );
-  const postBy = new Map<string, PostCtx>(posts.rows.map((p): [string, PostCtx] => [p.ig_media_id, p]));
+  const postBy = new Map<string, PostCtx>(posts.rows.map((p): [string, PostCtx] => [p.tiktok_post_id, p]));
   const usernames = [...new Set(batch.map((c) => c.username.toLowerCase()))];
   const history = await query<{ u: string; text: string; reply_text: string; replied_at: Date }>(
-    `SELECT lower(username) AS u, text, reply_text, replied_at FROM ig_comments
+    `SELECT lower(username) AS u, text, reply_text, replied_at FROM tiktok_comments
      WHERE coin_id = $1 AND status = 'replied' AND lower(username) = ANY($2) ORDER BY replied_at DESC LIMIT 60`,
     [coin.id, usernames],
   );
   const recentReplies = await query<{ reply_text: string }>(
-    `SELECT reply_text FROM ig_comments WHERE coin_id = $1 AND status = 'replied' AND action = 'reply'
+    `SELECT reply_text FROM tiktok_comments WHERE coin_id = $1 AND status = 'replied' AND action = 'reply'
      ORDER BY replied_at DESC LIMIT 12`,
     [coin.id],
   );
@@ -428,7 +431,7 @@ async function decide(coin: CoinRow, ownUsername: string, batch: StoredComment[]
     mood?.thread ? `On your mind: ${mood.thread}` : "",
     lastBurn ? `Fact you may use if relevant: your treasury last burned ${Math.round(Number(lastBurn.token_amount ?? 0)).toLocaleString("en-US")} $${coin.symbol} on ${lastBurn.created_at.toISOString().slice(0, 10)}.` : "",
     recentReplies.rows.length ? `Your recent replies (don't repeat these or their openings):\n${recentReplies.rows.map((r) => `- ${r.reply_text}`).join("\n")}` : "",
-    `Your Instagram handle is @${ownUsername}. Decide what to do with each comment below (one entry per comment, using its id).`,
+    `Your TikTok handle is @${ownUsername}. Decide what to do with each comment below (one entry per comment, using its id).`,
     sections.join("\n\n"),
   ]
     .filter(Boolean)
@@ -455,7 +458,7 @@ async function decide(coin: CoinRow, ownUsername: string, batch: StoredComment[]
 /** Recent comment exchanges, so posts can mention what fans said. */
 export async function commentMemories(coinId: string, limit = 3) {
   const r = await query<{ username: string; text: string; reply_text: string; replied_at: Date }>(
-    `SELECT username, text, reply_text, replied_at FROM ig_comments
+    `SELECT username, text, reply_text, replied_at FROM tiktok_comments
      WHERE coin_id = $1 AND status = 'replied' AND action = 'reply' ORDER BY replied_at DESC LIMIT $2`,
     [coinId, limit],
   );
@@ -466,14 +469,14 @@ export async function commentMemories(coinId: string, limit = 3) {
 
 export async function commentThreads(coinId: string, opts: { owner: boolean; limit: number }) {
   const tops = await query<any>(
-    `SELECT c.*, p.permalink, p.media, p.id AS pid FROM ig_comments c LEFT JOIN posts p ON p.id = c.post_id
+    `SELECT c.*, p.permalink, p.media, p.id AS pid FROM tiktok_comments c LEFT JOIN posts p ON p.id = c.post_id
      WHERE c.coin_id = $1 AND c.parent_id IS NULL AND NOT c.is_own
      ORDER BY c.commented_at DESC LIMIT $2`,
     [coinId, opts.limit],
   );
   const ids = tops.rows.map((t) => t.id);
   const replies = ids.length
-    ? await query<any>(`SELECT * FROM ig_comments WHERE parent_id = ANY($1) ORDER BY commented_at`, [ids])
+    ? await query<any>(`SELECT * FROM tiktok_comments WHERE parent_id = ANY($1) ORDER BY commented_at`, [ids])
     : { rows: [] as any[] };
   const view = (c: any) => ({
     id: c.id,
@@ -500,7 +503,7 @@ export async function commentStats(coinId: string) {
     `SELECT count(*) FILTER (WHERE status = 'replied' AND replied_at > now() - interval '24 hours')::int AS today,
             count(*) FILTER (WHERE status = 'new' AND NOT is_own)::int AS waiting,
             count(*) FILTER (WHERE NOT is_own)::int AS total
-     FROM ig_comments WHERE coin_id = $1`,
+     FROM tiktok_comments WHERE coin_id = $1`,
     [coinId],
   );
   return r ?? { today: 0, waiting: 0, total: 0 };

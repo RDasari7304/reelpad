@@ -73,7 +73,7 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
             <span className="feed-name" title={`${post.coin.name} $${post.coin.symbol}`}>
               <strong>{post.coin.name}</strong> <span className="feed-ticker">${post.coin.symbol}</span>
             </span>
-            <small>{post.coin.instagram ? `@${post.coin.instagram}` : "on Reelpad"}</small>
+            <small>{post.coin.tiktok ? `@${post.coin.tiktok}` : "on Reelpad"}</small>
           </span>
         </Link>
         <time dateTime={post.publishedAt} title={new Date(post.publishedAt).toLocaleString()}>
@@ -89,7 +89,7 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
           <img src={cover.url} alt={alt} loading="lazy" />
         ) : null}
         {post.format !== "image" && (
-          <span className="post-format">{post.format === "reel" ? "Reel" : `${images.length} images`}</span>
+          <span className="post-format">{post.format === "reel" ? "Video" : `${images.length} photos`}</span>
         )}
       </div>
       <div className="feed-body">
@@ -102,7 +102,7 @@ function FeedCard({ post, now, fresh }: { post: FeedPost; now: number; fresh: bo
         <div className="feed-links">
           {post.permalink && (
             <a href={post.permalink} target="_blank" rel="noreferrer">
-              View on Instagram
+              View on TikTok
             </a>
           )}
           {!post.permalink && <span className="feed-onpad">Posted on Reelpad</span>}

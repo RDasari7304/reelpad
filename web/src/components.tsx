@@ -13,8 +13,8 @@ export function CoinPrint({ coin, tilt = 0 }: { coin: Coin; tilt?: number }) {
       <div className="print-caption">
         <strong>{coin.name}</strong>
         <span className="print-ticker">${coin.symbol}</span>
-        <span className="print-handle">{coin.instagram ? `@${coin.instagram.username}` : "Instagram not connected yet"}</span>
-        {coin.instagram && <NextPostCountdown coin={coin} compact />}
+        <span className="print-handle">{coin.tiktok ? `@${coin.tiktok.username}` : "TikTok not connected yet"}</span>
+        {coin.tiktok && <NextPostCountdown coin={coin} compact />}
       </div>
     </Link>
   );

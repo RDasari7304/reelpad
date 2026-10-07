@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { coinPageUrl } from "../domain/links.js";
 import { one, query } from "../db/pool.js";
 import { openString } from "../lib/secrets.js";
+import { refreshAccount } from "./tiktokRefresh.js";
 import type { ContentSettings, Persona } from "../domain/schemas.js";
 
 export interface CoinRow {
@@ -51,31 +52,40 @@ export async function getCoinByIdOrMint(key: string): Promise<CoinRow | null> {
   return one<CoinRow>(`SELECT * FROM coins WHERE mint = $1`, [key]);
 }
 
-export interface IgAccount {
-  igUserId: string;
+export interface TikTokAccount {
+  openId: string;
   username: string;
   token: string;
   expiresAt: Date;
   status: string;
 }
 
-export async function getInstagram(coinId: string): Promise<IgAccount | null> {
-  const row = await one<{ ig_user_id: string; username: string; token_enc: string; token_expires_at: Date; status: string }>(
-    `SELECT ig_user_id, username, token_enc, token_expires_at, status FROM instagram_accounts WHERE coin_id = $1`,
+/**
+ * The coin's connected TikTok account with a usable access token. TikTok access tokens last 24 hours,
+ * so one that's about to run out is refreshed here first (the worker also refreshes them ahead of time).
+ */
+export async function getTikTok(coinId: string): Promise<TikTokAccount | null> {
+  const row = await one<{ open_id: string; username: string; token_enc: string; token_expires_at: Date; status: string }>(
+    `SELECT open_id, username, token_enc, token_expires_at, status FROM tiktok_accounts WHERE coin_id = $1`,
     [coinId],
   );
   if (!row) return null;
+  if (row.status === "active" && row.token_expires_at.getTime() < Date.now() + 10 * 60_000) {
+    const fresh = await refreshAccount(coinId);
+    if (fresh) return { openId: row.open_id, username: row.username, token: fresh.token, expiresAt: fresh.expiresAt, status: "active" };
+    return { openId: row.open_id, username: row.username, token: "", expiresAt: row.token_expires_at, status: "expired" };
+  }
   return {
-    igUserId: row.ig_user_id,
+    openId: row.open_id,
     username: row.username,
-    token: openString(row.token_enc),
+    token: row.status === "active" ? openString(row.token_enc) : "",
     expiresAt: row.token_expires_at,
     status: row.status,
   };
 }
 
-export async function markInstagramExpired(coinId: string) {
-  await query(`UPDATE instagram_accounts SET status = 'expired' WHERE coin_id = $1`, [coinId]);
+export async function markTikTokExpired(coinId: string) {
+  await query(`UPDATE tiktok_accounts SET status = 'expired' WHERE coin_id = $1`, [coinId]);
 }
 
 /** Public representation: never includes encrypted secrets or pending transaction bytes. */
